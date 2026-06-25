@@ -25,7 +25,7 @@ export function signUploadApi(payload: {
 }
 
 export function completeUploadApi(id: string) {
-  return http.post<unknown, unknown>(`/upload/${id}/complete`, {});
+  return http.post<unknown, ImageItem>(`/upload/${id}/complete`, {});
 }
 
 export function importUrlApi(payload: {

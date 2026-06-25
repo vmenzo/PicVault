@@ -152,11 +152,13 @@ async function runLocalUpload(item: QueueItem) {
   });
   item.status = 'processing';
   item.progress = 88;
-  await completeUploadApi(signed.imageId);
+  const image = await completeUploadApi(signed.imageId);
   item.status = 'success';
   item.progress = 100;
   item.url =
-    item.visibility === 'PRIVATE' ? '' : toAbsoluteUrl(signed.publicUrl);
+    image.status === 'READY' && image.visibility !== 'PRIVATE'
+      ? toAbsoluteUrl(image.publicUrl)
+      : '';
 }
 
 async function runRemoteImport(item: QueueItem) {
@@ -175,7 +177,9 @@ async function runRemoteImport(item: QueueItem) {
   item.name = image.originalName;
   item.size = image.sizeBytes;
   item.url =
-    image.visibility === 'PRIVATE' ? '' : toAbsoluteUrl(image.publicUrl);
+    image.status === 'READY' && image.visibility !== 'PRIVATE'
+      ? toAbsoluteUrl(image.publicUrl)
+      : '';
 }
 
 async function runQueueItem(item: QueueItem) {

@@ -210,6 +210,21 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     update: TelegramUpdate,
   ) {
     if (update.callback_query) {
+      const callbackChatId = update.callback_query.message?.chat.id;
+      if (
+        callbackChatId !== undefined &&
+        setting.telegramAllowedChatIds.length &&
+        !setting.telegramAllowedChatIds.includes(String(callbackChatId))
+      ) {
+        await this.answerCallback(
+          token,
+          update.callback_query.id,
+          '这个 Chat ID 未被允许操作。',
+          true,
+        );
+        return;
+      }
+
       await this.handleCallback(ownerId, token, setting, update.callback_query);
       return;
     }
@@ -275,7 +290,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         visibility: setting.defaultVisibility,
         setting,
       });
-      const isPublic = image.visibility !== Visibility.PRIVATE;
+      const canOpenPublic = this.isPublicReadyImage(image);
 
       await this.sendPanel(token, chatId, {
         text: [
@@ -284,12 +299,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           `文件：${image.originalName}`,
           `大小：${this.formatBytes(Number(image.sizeBytes))}`,
           `可见性：${this.visibilityText(image.visibility)}`,
-          image.publicUrl ? `链接：${image.publicUrl}` : '',
+          this.publicLinkLine(image),
         ]
           .filter(Boolean)
           .join('\n'),
         keyboard: [
-          ...(isPublic
+          ...(canOpenPublic
             ? [
                 [
                   {
@@ -517,13 +532,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
                   `   ${this.statusText(image.status)} · ${this.visibilityText(
                     image.visibility,
                   )} · ${this.formatBytes(Number(image.sizeBytes))}\n` +
-                  `   ${this.absoluteUrl(image.publicUrl)}`,
+                  `   ${this.publicLinkLine(image)}`,
               ),
             ].join('\n')
           : '最近图片\n\n暂无图片。',
       keyboard: [
         ...images
-          .filter((image) => image.visibility !== Visibility.PRIVATE)
+          .filter((image) => this.isPublicReadyImage(image))
           .slice(0, 3)
           .map((image) => [
             {
@@ -728,10 +743,21 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async answerCallback(token: string, id: string) {
-    await this.telegram(token, 'answerCallbackQuery', {
+  private async answerCallback(
+    token: string,
+    id: string,
+    text?: string,
+    showAlert = false,
+  ) {
+    const payload: Record<string, unknown> = {
       callback_query_id: id,
-    });
+    };
+    if (text) {
+      payload.text = text;
+      payload.show_alert = showAlert;
+    }
+
+    await this.telegram(token, 'answerCallbackQuery', payload);
   }
 
   private async telegram<T = unknown>(
@@ -768,6 +794,32 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   private shareUrl(imageId: string) {
     return new URL(`/s/${imageId}`, this.publicAppUrl()).toString();
+  }
+
+  private isPublicReadyImage(image: {
+    visibility: Visibility;
+    status: ImageStatus;
+  }) {
+    return (
+      image.visibility !== Visibility.PRIVATE &&
+      image.status === ImageStatus.READY
+    );
+  }
+
+  private publicLinkLine(image: {
+    visibility: Visibility;
+    status: ImageStatus;
+    publicUrl?: string | null;
+  }) {
+    if (this.isPublicReadyImage(image) && image.publicUrl) {
+      return `链接：${this.absoluteUrl(image.publicUrl)}`;
+    }
+
+    if (image.visibility === Visibility.PRIVATE) {
+      return '链接：私有图片不生成公开链接';
+    }
+
+    return '链接：图片处理完成后可访问';
   }
 
   private publicAppUrl() {

@@ -730,7 +730,7 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async resolveImportHost(hostname: string) {
-    const host = hostname.toLowerCase();
+    const host = this.normalizeAddress(hostname);
     if (isIP(host)) {
       return [host];
     }
@@ -744,10 +744,14 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
   }
 
   private isPrivateAddress(address: string) {
-    const normalized = address.toLowerCase();
+    const normalized = this.normalizeAddress(address);
     const mappedIpv4 = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
     if (mappedIpv4) {
       return this.isPrivateAddress(mappedIpv4);
+    }
+
+    if (normalized.startsWith('::ffff:')) {
+      return true;
     }
 
     if (normalized === 'localhost' || normalized === '::1') {
@@ -786,6 +790,10 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
       (first === 198 && (second === 18 || second === 19)) ||
       first >= 224
     );
+  }
+
+  private normalizeAddress(value: string) {
+    return value.toLowerCase().replace(/^\[(.*)\]$/, '$1');
   }
 
   private header(headers: IncomingHttpHeaders, name: string) {
