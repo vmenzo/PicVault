@@ -1,75 +1,81 @@
 # PicVault
 
-A full-stack image hosting starter built with Vue 3, Element Plus, NestJS, PostgreSQL, Redis, BullMQ, sharp, and S3-compatible object storage.
+PicVault 是一套基于 Docker Compose 部署的图床系统，包含 Web 管理端、后端 API、PostgreSQL、Redis 和图片处理队列。
 
-## Stack
+## 功能
 
-- Frontend: Vue 3, Vite, Element Plus, Pinia, Vue Router
-- Backend: NestJS, Prisma, PostgreSQL, Redis, BullMQ, sharp
-- Storage: third-party S3-compatible object storage, with optional local disk storage
-- Deployment base: Docker Compose
+- 图片上传、图片库、相册、回收站、链接管理
+- 用户注册、登录、账户设置、找回密码
+- 管理中心、用户管理、系统状态、存储配置
+- 本机存储和 S3 兼容对象存储
+- Telegram Bot 集成
+- 图片缩略图、WebP/AVIF、元数据处理、水印配置
+- API Key 上传
 
-## Production Deploy
+## 技术栈
 
-One-command Docker installation on a fresh VPS:
+- 前端：Vue 3、Vite、Element Plus、Pinia、Vue Router
+- 后端：NestJS、Prisma、PostgreSQL、Redis、BullMQ、sharp
+- 存储：本机存储、S3 兼容对象存储
+- 部署：Docker Compose
+
+## 一键安装
+
+root 用户执行：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vmenzo/image-bed/main/scripts/install.sh | bash
 ```
 
-If the current shell is not root:
+非 root 用户执行：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vmenzo/image-bed/main/scripts/install.sh | sudo bash
 ```
 
-Optional custom port or public URL:
+指定端口和公开域名：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/vmenzo/image-bed/main/scripts/install.sh | PICVAULT_PORT=7899 APP_PUBLIC_URL=https://img.example.com bash
 ```
 
-After the repository is pushed to GitHub, deploy from a VPS with Docker and Docker Compose:
+默认安装目录：`/opt/picvault`
+
+默认访问地址：`http://服务器IP:7899`
+
+第一个注册用户自动成为管理员。
+
+## 手动部署
 
 ```bash
-git clone https://github.com/YOUR_NAME/YOUR_REPO.git image-bed
+git clone https://github.com/vmenzo/image-bed.git image-bed
 cd image-bed
 cp .env.production.example .env
-
-# edit .env before first start
 nano .env
-
 docker compose up -d --build
 docker compose ps
 curl -fsS http://127.0.0.1:7899/healthz
 ```
 
-Frontend: `http://SERVER_IP:7899`
-
-Backend API: proxied at `/api`.
-
-Swagger is disabled by default. Set `ENABLE_SWAGGER=true` only for trusted environments.
-
-PostgreSQL, Redis, and the backend are internal Compose services and are not exposed to the public host.
-
-Fresh installs default to local disk storage so uploads work immediately. Configure a third-party S3-compatible provider in `.env` or in Control Center when you want browser direct-to-object-storage uploads. Supported examples include Cloudflare R2, AWS S3, Alibaba OSS S3-compatible endpoints, Tencent COS S3-compatible endpoints, and other compatible services. The bucket must allow browser `PUT` requests through CORS.
-
-To update an existing deployment:
+## 更新
 
 ```bash
-cd image-bed
+cd /opt/picvault
 git pull
 docker compose up -d --build
 docker compose ps
 ```
 
-To back up PostgreSQL and local storage:
+## 备份
 
 ```bash
+cd /opt/picvault
 bash scripts/backup.sh
 ```
 
-## Local Development
+备份内容包括 PostgreSQL 数据和本机存储文件。
+
+## 本地开发
 
 ```bash
 cp .env.example .env
@@ -82,9 +88,21 @@ npm run start:dev -w backend
 npm run dev -w frontend
 ```
 
-## Notes
+## 生产配置
 
-- The first registered user automatically becomes `ADMIN`.
-- Uploads use presigned PUT URLs, so the browser sends image bytes directly to the configured object-storage provider.
-- The image processing queue is wired with BullMQ and sharp; the current worker marks uploaded images as ready and is the extension point for thumbnails, WebP/AVIF, watermarks, and moderation.
-- Prisma is pinned to v6 because Prisma v7 changes datasource configuration and requires a different setup.
+- 默认宿主端口：`7899`
+- 前端入口：`http://服务器IP:7899`
+- 后端 API：`/api`
+- PostgreSQL、Redis、后端服务默认不暴露到公网
+- 新安装默认使用本机存储，可直接上传
+- 第三方存储支持 Cloudflare R2、AWS S3、阿里云 OSS S3 兼容接口、腾讯云 COS S3 兼容接口
+- 使用第三方存储时，存储桶需要允许浏览器 `PUT` 请求的 CORS
+- 反向代理 HTTPS 时，将 `.env` 中的 `APP_PUBLIC_URL` 设置为公开域名
+- Swagger 默认关闭，仅在可信环境中设置 `ENABLE_SWAGGER=true`
+
+## 常用文件
+
+- `.env.production.example`：生产环境配置模板
+- `docker-compose.yml`：生产编排配置
+- `scripts/install.sh`：一键安装脚本
+- `scripts/backup.sh`：备份脚本
