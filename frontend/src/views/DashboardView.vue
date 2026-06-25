@@ -11,6 +11,7 @@ import {
 } from '@element-plus/icons-vue';
 import { useRouter } from 'vue-router';
 import { imageStatsApi, listImagesApi } from '@/api/images';
+import ProtectedImage from '@/components/ProtectedImage.vue';
 import type { ImageItem, ImageStats } from '@/api/types';
 import { useAuthStore } from '@/stores/auth';
 import { formatBytes, formatDate, statusLabel } from '@/utils/format';
@@ -156,7 +157,7 @@ onMounted(async () => {
           <el-table-column label="图片" min-width="260">
             <template #default="{ row }">
               <div class="image-row">
-                <img :src="row.thumbUrl || row.publicUrl" :alt="row.title" />
+                <ProtectedImage :image="row" :alt="row.title" />
                 <div>
                   <strong>{{ row.title }}</strong>
                   <span>{{ row.originalName }}</span>

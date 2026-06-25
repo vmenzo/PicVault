@@ -47,6 +47,7 @@ type QueueItem = {
   file?: File;
   remoteUrl?: string;
   storageProvider: StorageProvider;
+  visibility: Visibility;
 };
 
 const albums = ref<Album[]>([]);
@@ -141,7 +142,7 @@ async function runLocalUpload(item: QueueItem) {
     contentType: item.file.type || 'application/octet-stream',
     sizeBytes: item.file.size,
     albumId: form.albumId || undefined,
-    visibility: form.visibility,
+    visibility: item.visibility,
     storageProvider: item.storageProvider,
   });
 
@@ -154,7 +155,8 @@ async function runLocalUpload(item: QueueItem) {
   await completeUploadApi(signed.imageId);
   item.status = 'success';
   item.progress = 100;
-  item.url = toAbsoluteUrl(signed.publicUrl);
+  item.url =
+    item.visibility === 'PRIVATE' ? '' : toAbsoluteUrl(signed.publicUrl);
 }
 
 async function runRemoteImport(item: QueueItem) {
@@ -165,14 +167,15 @@ async function runRemoteImport(item: QueueItem) {
     url: item.remoteUrl,
     filename: remoteFilename.value.trim() || undefined,
     albumId: form.albumId || undefined,
-    visibility: form.visibility,
+    visibility: item.visibility,
     storageProvider: item.storageProvider,
   });
   item.status = 'success';
   item.progress = 100;
   item.name = image.originalName;
   item.size = image.sizeBytes;
-  item.url = toAbsoluteUrl(image.publicUrl);
+  item.url =
+    image.visibility === 'PRIVATE' ? '' : toAbsoluteUrl(image.publicUrl);
 }
 
 async function runQueueItem(item: QueueItem) {
@@ -199,6 +202,7 @@ async function enqueueFiles(
     size: file.size,
     source,
     storageProvider: form.storageProvider,
+    visibility: form.visibility,
     status: 'waiting' as QueueStatus,
     progress: 0,
     file,
@@ -218,6 +222,7 @@ async function uploadFile(options: UploadRequestOptions) {
     size: file.size,
     source: 'local',
     storageProvider: form.storageProvider,
+    visibility: form.visibility,
     status: 'waiting',
     progress: 0,
     file,
@@ -257,6 +262,7 @@ async function importRemoteUrls() {
     size: 0,
     source: 'remote',
     storageProvider: form.storageProvider,
+    visibility: form.visibility,
     status: 'waiting',
     progress: 0,
     remoteUrl: url,

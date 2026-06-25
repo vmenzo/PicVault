@@ -1,5 +1,6 @@
 import {
   Controller,
+  ForbiddenException,
   Get,
   NotFoundException,
   Req,
@@ -8,7 +9,7 @@ import {
   Inject,
   forwardRef,
 } from '@nestjs/common';
-import { StorageProvider } from '@prisma/client';
+import { ImageStatus, StorageProvider, Visibility } from '@prisma/client';
 import { lookup } from 'mime-types';
 import { Request, Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
@@ -30,15 +31,15 @@ export class PublicFilesController {
     @Res({ passthrough: true }) response: Response,
   ) {
     const key = this.getKey(request);
-    const ownerId = key.split('/')[1];
 
-    if (!key.startsWith('users/') || !ownerId) {
+    if (!key.startsWith('users/')) {
       throw new NotFoundException('File not found');
     }
 
-    await this.ensureKnownFile(key);
+    const image = await this.ensurePublicFile(key);
+    const setting = await this.settings.getRuntime(image.ownerId);
+    this.enforceHotlinkProtection(request, setting);
 
-    const setting = await this.settings.getRuntime(ownerId);
     const storageSetting: StorageRuntimeConfig = {
       ...setting,
       storageProvider: StorageProvider.LOCAL,
@@ -60,7 +61,7 @@ export class PublicFilesController {
     return new StreamableFile(stream);
   }
 
-  private async ensureKnownFile(key: string) {
+  private async ensurePublicFile(key: string) {
     const image = await this.prisma.image.findFirst({
       where: {
         OR: [
@@ -72,11 +73,55 @@ export class PublicFilesController {
       },
       select: {
         id: true,
+        ownerId: true,
+        status: true,
+        visibility: true,
       },
     });
 
-    if (!image) {
+    if (
+      !image ||
+      image.status !== ImageStatus.READY ||
+      image.visibility === Visibility.PRIVATE
+    ) {
       throw new NotFoundException('File not found');
+    }
+
+    return image;
+  }
+
+  private enforceHotlinkProtection(
+    request: Request,
+    setting: Awaited<ReturnType<SettingsService['getRuntime']>>,
+  ) {
+    if (!setting.hotlinkProtection) {
+      return;
+    }
+
+    const source = request.get('referer') || request.get('origin');
+    if (!source) {
+      return;
+    }
+
+    const requestOrigin = `${request.protocol}://${request.get('host')}`;
+    const allowedOrigins = new Set([requestOrigin]);
+    if (setting.publicBaseUrl) {
+      try {
+        allowedOrigins.add(new URL(setting.publicBaseUrl).origin);
+      } catch {
+        // Invalid publicBaseUrl is handled by settings validation on write.
+      }
+    }
+
+    try {
+      if (!allowedOrigins.has(new URL(source).origin)) {
+        throw new ForbiddenException('Hotlink is not allowed');
+      }
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        throw error;
+      }
+      throw new ForbiddenException('Hotlink is not allowed');
     }
   }
 

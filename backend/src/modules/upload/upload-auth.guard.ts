@@ -34,6 +34,7 @@ export class UploadAuthGuard implements CanActivate {
 
       request.user = {
         id: user.id,
+        publicId: user.publicId,
         email: user.email,
         role: user.role,
         authType: 'api-key',

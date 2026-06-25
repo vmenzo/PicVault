@@ -21,8 +21,8 @@ export class MaintenanceController {
   constructor(private readonly maintenance: MaintenanceService) {}
 
   @Get('summary')
-  summary(@CurrentUser() user: CurrentUserPayload) {
-    return this.maintenance.summary(user.id);
+  summary() {
+    return this.maintenance.summary();
   }
 
   @Post('reprocess')
@@ -31,7 +31,7 @@ export class MaintenanceController {
     @Body() dto: ReprocessImagesDto,
     @Req() request: Request,
   ) {
-    return this.maintenance.reprocess(user.id, dto, {
+    return this.maintenance.reprocess(dto, {
       actorId: user.id,
       request,
     });

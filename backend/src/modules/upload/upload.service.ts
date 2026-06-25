@@ -2,6 +2,9 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -15,6 +18,12 @@ import {
 } from '@prisma/client';
 import sharp = require('sharp');
 import { lookup as lookupDns } from 'node:dns/promises';
+import {
+  request as httpRequest,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+} from 'node:http';
+import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
@@ -31,7 +40,10 @@ const nanoid = customAlphabet('0123456789abcdefghijklmnopqrstuvwxyz', 12);
 type RuntimeUploadSetting = Awaited<ReturnType<SettingsService['getRuntime']>>;
 
 @Injectable()
-export class UploadService {
+export class UploadService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(UploadService.name);
+  private cleanupTimer?: NodeJS.Timeout;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
@@ -39,6 +51,22 @@ export class UploadService {
     @InjectQueue('image-processing')
     private readonly processingQueue: Queue,
   ) {}
+
+  onModuleInit() {
+    this.cleanupTimer = setInterval(
+      () => {
+        void this.cleanupStalePendingUploads();
+      },
+      60 * 60 * 1000,
+    );
+    void this.cleanupStalePendingUploads();
+  }
+
+  onModuleDestroy() {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+    }
+  }
 
   async create(ownerId: string, dto: CreateUploadDto) {
     const setting = await this.settings.getRuntime(ownerId);
@@ -232,22 +260,25 @@ export class UploadService {
       await this.ensureAlbum(ownerId, dto.albumId);
     }
 
-    const response = await this.fetchImportUrl(dto.url);
-
-    if (!response.ok) {
-      throw new BadRequestException('Remote image is not accessible');
+    const remote = await this.downloadImportUrl(dto.url, setting.maxSizeBytes);
+    if (remote.contentLength) {
+      this.validateUploadPolicy(
+        remote.contentType,
+        remote.contentLength,
+        setting,
+      );
     }
 
-    const contentType =
-      response.headers.get('content-type')?.split(';')[0] ?? '';
-    const contentLength = Number(response.headers.get('content-length') ?? 0);
-    if (contentLength) {
-      this.validateUploadPolicy(contentType, contentLength, setting);
-    }
-
-    const buffer = await this.readRemoteImage(response, setting.maxSizeBytes);
-    this.validateUploadPolicy(contentType, buffer.length, setting);
-    await this.inspectImageBuffer(buffer, contentType, BigInt(buffer.length));
+    this.validateUploadPolicy(
+      remote.contentType,
+      remote.buffer.length,
+      setting,
+    );
+    await this.inspectImageBuffer(
+      remote.buffer,
+      remote.contentType,
+      BigInt(remote.buffer.length),
+    );
 
     const filename =
       dto.filename?.trim() ||
@@ -256,8 +287,8 @@ export class UploadService {
 
     return this.createFromBuffer(ownerId, {
       filename,
-      contentType,
-      body: buffer,
+      contentType: remote.contentType,
+      body: remote.buffer,
       albumId: dto.albumId,
       visibility: dto.visibility,
       setting,
@@ -434,38 +465,6 @@ export class UploadService {
     }
   }
 
-  private async readRemoteImage(response: Response, maxSizeBytes: number) {
-    if (!response.body) {
-      throw new BadRequestException('Remote image body is empty');
-    }
-
-    const reader = response.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-
-      if (!value?.byteLength) {
-        continue;
-      }
-
-      total += value.byteLength;
-      if (total > maxSizeBytes) {
-        throw new BadRequestException('Remote image exceeds max upload size');
-      }
-      chunks.push(value);
-    }
-
-    return Buffer.concat(
-      chunks.map((chunk) => Buffer.from(chunk)),
-      total,
-    );
-  }
-
   private async ensureQuota(ownerId: string, sizeBytes: number) {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: ownerId },
@@ -478,6 +477,51 @@ export class UploadService {
     if (user.usedBytes + BigInt(sizeBytes) > user.quotaBytes) {
       throw new ForbiddenException('Storage quota exceeded');
     }
+  }
+
+  private async cleanupStalePendingUploads() {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const staleImages = await this.prisma.image.findMany({
+      where: {
+        status: ImageStatus.PENDING,
+        uploadedAt: null,
+        createdAt: {
+          lt: cutoff,
+        },
+      },
+      select: {
+        id: true,
+        ownerId: true,
+        storageProvider: true,
+        storageKey: true,
+      },
+      take: 100,
+    });
+
+    if (!staleImages.length) {
+      return;
+    }
+
+    for (const image of staleImages) {
+      const setting = this.toStorageSetting(
+        await this.settings.getRuntime(image.ownerId),
+      );
+      await this.storage
+        .deleteObject(image.storageKey, {
+          ...setting,
+          storageProvider: image.storageProvider,
+        })
+        .catch(() => undefined);
+    }
+
+    const result = await this.prisma.image.deleteMany({
+      where: {
+        id: { in: staleImages.map((image) => image.id) },
+        status: ImageStatus.PENDING,
+        uploadedAt: null,
+      },
+    });
+    this.logger.log(`Cleaned ${result.count} stale pending uploads`);
   }
 
   private async incrementUsageWithinQuota(
@@ -529,28 +573,131 @@ export class UploadService {
     }
   }
 
-  private async fetchImportUrl(value: string) {
-    let url = await this.parseImportUrl(value);
+  private async downloadImportUrl(value: string, maxSizeBytes: number) {
+    let target = await this.parseImportUrl(value);
 
     for (let redirectCount = 0; redirectCount <= 5; redirectCount += 1) {
-      const response = await fetch(url, {
-        redirect: 'manual',
-        signal: AbortSignal.timeout(20000),
-      });
+      const response = await this.requestImportUrl(target, maxSizeBytes);
 
-      if (![301, 302, 303, 307, 308].includes(response.status)) {
-        return response;
+      if (![301, 302, 303, 307, 308].includes(response.statusCode)) {
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          throw new BadRequestException('Remote image is not accessible');
+        }
+
+        const contentType =
+          this.header(response.headers, 'content-type')?.split(';')[0] ?? '';
+        return {
+          buffer: response.body,
+          contentType,
+          contentLength: Number(
+            this.header(response.headers, 'content-length') ?? 0,
+          ),
+        };
       }
 
-      const location = response.headers.get('location');
+      const location = this.header(response.headers, 'location');
       if (!location) {
         throw new BadRequestException('Remote image redirect is invalid');
       }
 
-      url = await this.parseImportUrl(new URL(location, url).toString());
+      target = await this.parseImportUrl(
+        new URL(location, target.url).toString(),
+      );
     }
 
     throw new BadRequestException('Remote image has too many redirects');
+  }
+
+  private requestImportUrl(
+    target: Awaited<ReturnType<UploadService['parseImportUrl']>>,
+    maxSizeBytes: number,
+  ) {
+    return new Promise<{
+      statusCode: number;
+      headers: IncomingHttpHeaders;
+      body: Buffer;
+    }>((resolve, reject) => {
+      const request =
+        target.url.protocol === 'https:' ? httpsRequest : httpRequest;
+      const req = request(
+        {
+          protocol: target.url.protocol,
+          hostname: target.url.hostname,
+          port: target.url.port ? Number(target.url.port) : undefined,
+          path: `${target.url.pathname}${target.url.search}`,
+          method: 'GET',
+          family: target.family,
+          lookup: (_hostname, _options, callback) => {
+            callback(null, target.address, target.family);
+          },
+          headers: {
+            accept: 'image/*,*/*;q=0.8',
+            'user-agent': 'PicVault/0.1',
+          },
+          timeout: 20000,
+        },
+        async (response) => {
+          try {
+            const statusCode = response.statusCode ?? 0;
+            const shouldReadBody = ![301, 302, 303, 307, 308].includes(
+              statusCode,
+            );
+            const body = shouldReadBody
+              ? await this.readImportResponse(response, maxSizeBytes)
+              : Buffer.alloc(0);
+            if (!shouldReadBody) {
+              response.resume();
+            }
+
+            resolve({
+              statusCode,
+              headers: response.headers,
+              body,
+            });
+          } catch (error) {
+            reject(error);
+          }
+        },
+      );
+
+      req.on('timeout', () => {
+        req.destroy(new Error('Remote image request timed out'));
+      });
+      req.on('error', reject);
+      req.end();
+    });
+  }
+
+  private async readImportResponse(
+    response: IncomingMessage,
+    maxSizeBytes: number,
+  ) {
+    const contentLength = Number(
+      this.header(response.headers, 'content-length') ?? 0,
+    );
+    if (contentLength > maxSizeBytes) {
+      response.destroy();
+      throw new BadRequestException('Remote image exceeds max upload size');
+    }
+
+    const chunks: Buffer[] = [];
+    let total = 0;
+
+    for await (const chunk of response) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      total += buffer.length;
+      if (total > maxSizeBytes) {
+        response.destroy();
+        throw new BadRequestException('Remote image exceeds max upload size');
+      }
+      chunks.push(buffer);
+    }
+
+    if (!total) {
+      throw new BadRequestException('Remote image body is empty');
+    }
+
+    return Buffer.concat(chunks, total);
   }
 
   private async parseImportUrl(value: string) {
@@ -566,11 +713,20 @@ export class UploadService {
     }
 
     const addresses = await this.resolveImportHost(parsed.hostname);
+    if (!addresses.length) {
+      throw new BadRequestException('Remote host cannot be resolved');
+    }
+
     if (addresses.some((address) => this.isPrivateAddress(address))) {
       throw new BadRequestException('Private network URLs are not allowed');
     }
 
-    return parsed.toString();
+    const address = addresses[0];
+    return {
+      url: parsed,
+      address,
+      family: isIP(address) === 6 ? 6 : 4,
+    };
   }
 
   private async resolveImportHost(hostname: string) {
@@ -589,12 +745,12 @@ export class UploadService {
 
   private isPrivateAddress(address: string) {
     const normalized = address.toLowerCase();
-    if (
-      normalized === 'localhost' ||
-      normalized === '127.0.0.1' ||
-      normalized === '0.0.0.0' ||
-      normalized === '::1'
-    ) {
+    const mappedIpv4 = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
+    if (mappedIpv4) {
+      return this.isPrivateAddress(mappedIpv4);
+    }
+
+    if (normalized === 'localhost' || normalized === '::1') {
       return true;
     }
 
@@ -603,17 +759,42 @@ export class UploadService {
         normalized === '::' ||
         normalized.startsWith('fc') ||
         normalized.startsWith('fd') ||
-        normalized.startsWith('fe80:')
+        normalized.startsWith('fe8') ||
+        normalized.startsWith('fe9') ||
+        normalized.startsWith('fea') ||
+        normalized.startsWith('feb') ||
+        normalized.startsWith('ff') ||
+        normalized.startsWith('2001:db8:')
       );
     }
 
+    const octets = normalized.split('.').map((part) => Number(part));
+    if (octets.length !== 4 || octets.some((part) => Number.isNaN(part))) {
+      return true;
+    }
+    const [first, second] = octets;
+
     return (
-      normalized.startsWith('10.') ||
-      normalized.startsWith('127.') ||
-      normalized.startsWith('169.254.') ||
-      normalized.startsWith('192.168.') ||
-      /^172\.(1[6-9]|2\d|3[0-1])\./.test(normalized)
+      first === 0 ||
+      first === 10 ||
+      first === 127 ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 0) ||
+      (first === 192 && second === 168) ||
+      (first === 198 && (second === 18 || second === 19)) ||
+      first >= 224
     );
+  }
+
+  private header(headers: IncomingHttpHeaders, name: string) {
+    const value = headers[name.toLowerCase()];
+    if (Array.isArray(value)) {
+      return value[0] ?? null;
+    }
+
+    return value ?? null;
   }
 
   private contentTypeFromSharpFormat(format: string) {

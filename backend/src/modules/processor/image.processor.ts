@@ -5,7 +5,10 @@ import sharp = require('sharp');
 import { ImageStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { StorageService } from '../storage/storage.service';
+import {
+  StorageRuntimeConfig,
+  StorageService,
+} from '../storage/storage.service';
 
 @Injectable()
 @Processor('image-processing')
@@ -39,11 +42,16 @@ export class ImageProcessor extends WorkerHost {
       return { ok: false };
     }
 
+    const generatedKeys: string[] = [];
+    let cleanupSetting: StorageRuntimeConfig | undefined;
+    let persisted = false;
+
     try {
       const setting = {
         ...(await this.settings.getRuntime(image.ownerId)),
         storageProvider: image.storageProvider,
       };
+      cleanupSetting = setting;
       const input = await this.storage.getObjectBuffer(
         image.storageKey,
         setting,
@@ -113,6 +121,7 @@ export class ImageProcessor extends WorkerHost {
           contentType: 'image/webp',
           setting,
         });
+        generatedKeys.push(thumbKey);
         updates.thumbKey = thumbKey;
         updates.thumbUrl = this.storage.getPublicUrlWithBase(thumbKey, setting);
       }
@@ -126,6 +135,7 @@ export class ImageProcessor extends WorkerHost {
           contentType: 'image/webp',
           setting,
         });
+        generatedKeys.push(webpKey);
         updates.webpKey = webpKey;
         updates.webpUrl = this.storage.getPublicUrlWithBase(webpKey, setting);
       }
@@ -139,6 +149,7 @@ export class ImageProcessor extends WorkerHost {
           contentType: 'image/avif',
           setting,
         });
+        generatedKeys.push(avifKey);
         updates.avifKey = avifKey;
         updates.avifUrl = this.storage.getPublicUrlWithBase(avifKey, setting);
       }
@@ -147,6 +158,7 @@ export class ImageProcessor extends WorkerHost {
         where: { id: image.id },
         data: updates,
       });
+      persisted = true;
 
       if (
         updates.sizeBytes !== undefined &&
@@ -178,6 +190,14 @@ export class ImageProcessor extends WorkerHost {
       });
 
       throw error;
+    } finally {
+      if (!persisted && cleanupSetting && generatedKeys.length) {
+        await Promise.allSettled(
+          generatedKeys.map((key) =>
+            this.storage.deleteObject(key, cleanupSetting),
+          ),
+        );
+      }
     }
   }
 

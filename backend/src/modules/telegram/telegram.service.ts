@@ -58,6 +58,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   async status() {
     const settings = await this.prisma.appSetting.findMany({
+      where: {
+        owner: {
+          disabled: false,
+        },
+      },
       select: {
         ownerId: true,
         telegramBotEnabled: true,
@@ -128,6 +133,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         where: {
           telegramBotEnabled: true,
           telegramBotToken: { not: null },
+          owner: {
+            disabled: false,
+          },
         },
       });
 

@@ -45,6 +45,26 @@ export class ImagesController {
     return this.images.tags(user.id);
   }
 
+  @Get(':id/asset')
+  async asset(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Query('variant') variant: string | undefined,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const file = await this.images.asset(user.id, id, variant);
+    response.set({
+      'Content-Type': file.contentType,
+      'Cache-Control': 'private, max-age=60',
+    });
+
+    if (file.stream) {
+      return new StreamableFile(file.stream);
+    }
+
+    return new StreamableFile(file.buffer!);
+  }
+
   @Post('bulk')
   bulk(
     @CurrentUser() user: CurrentUserPayload,

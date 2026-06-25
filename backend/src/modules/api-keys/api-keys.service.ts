@@ -65,12 +65,13 @@ export class ApiKeysService {
             publicId: true,
             email: true,
             role: true,
+            disabled: true,
           },
         },
       },
     });
 
-    if (!record) {
+    if (!record || record.user.disabled) {
       return null;
     }
 

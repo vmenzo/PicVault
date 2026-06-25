@@ -26,25 +26,24 @@ export class MaintenanceService {
     private readonly processingQueue: Queue,
   ) {}
 
-  async summary(ownerId: string) {
+  async summary() {
     const [byProvider, missingDerived, failed, processing] = await Promise.all([
       this.prisma.image.groupBy({
         by: ['storageProvider'],
-        where: { ownerId, status: { not: ImageStatus.DELETED } },
+        where: { status: { not: ImageStatus.DELETED } },
         _count: { _all: true },
       }),
       this.prisma.image.count({
         where: {
-          ownerId,
           status: ImageStatus.READY,
           OR: [{ thumbKey: null }, { webpKey: null }],
         },
       }),
       this.prisma.image.count({
-        where: { ownerId, status: ImageStatus.FAILED },
+        where: { status: ImageStatus.FAILED },
       }),
       this.prisma.image.count({
-        where: { ownerId, status: ImageStatus.PROCESSING },
+        where: { status: ImageStatus.PROCESSING },
       }),
     ]);
 
@@ -59,14 +58,9 @@ export class MaintenanceService {
     };
   }
 
-  async reprocess(
-    ownerId: string,
-    dto: ReprocessImagesDto,
-    context: AuditContext,
-  ) {
+  async reprocess(dto: ReprocessImagesDto, context: AuditContext) {
     const images = await this.prisma.image.findMany({
       where: {
-        ownerId,
         status: { not: ImageStatus.DELETED },
         id: dto.imageIds?.length ? { in: dto.imageIds } : undefined,
         OR: dto.missingOnly
@@ -106,21 +100,21 @@ export class MaintenanceService {
     return { affected: images.length };
   }
 
-  async migrate(ownerId: string, dto: MigrateImagesDto, context: AuditContext) {
-    const currentSetting = await this.settings.getRuntime(ownerId);
+  async migrate(actorId: string, dto: MigrateImagesDto, context: AuditContext) {
+    const currentSetting = await this.settings.getRuntime(actorId);
     const targetSetting = {
       ...currentSetting,
       storageProvider: dto.targetProvider,
     };
     const images = await this.prisma.image.findMany({
       where: {
-        ownerId,
         status: { not: ImageStatus.DELETED },
         storageProvider: { not: dto.targetProvider },
         id: dto.imageIds?.length ? { in: dto.imageIds } : undefined,
       },
       select: {
         id: true,
+        ownerId: true,
         storageProvider: true,
         storageKey: true,
         originalName: true,
@@ -138,7 +132,7 @@ export class MaintenanceService {
     let failed = 0;
     for (const image of images) {
       try {
-        await this.migrateOne(ownerId, image, targetSetting);
+        await this.migrateOne(image, targetSetting);
         migrated += 1;
 
         if (dto.reprocess ?? true) {
@@ -170,9 +164,9 @@ export class MaintenanceService {
   }
 
   private async migrateOne(
-    ownerId: string,
     image: {
       id: string;
+      ownerId: string;
       storageProvider: StorageProvider;
       storageKey: string;
       originalName: string;
@@ -182,7 +176,7 @@ export class MaintenanceService {
     targetSetting: StorageRuntimeConfig,
   ) {
     const sourceSetting = {
-      ...(await this.settings.getRuntime(ownerId)),
+      ...(await this.settings.getRuntime(image.ownerId)),
       storageProvider: image.storageProvider,
     };
     const buffer = await this.storage.getObjectBuffer(

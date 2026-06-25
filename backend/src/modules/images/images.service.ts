@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -11,6 +12,7 @@ import {
   Visibility,
 } from '@prisma/client';
 import { Queue } from 'bullmq';
+import { lookup } from 'mime-types';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { StorageRuntimeConfig } from '../storage/storage.service';
@@ -530,6 +532,63 @@ export class ImagesService {
     };
   }
 
+  async asset(ownerId: string, id: string, variant?: string) {
+    const image = await this.prisma.image.findFirst({
+      where: {
+        id,
+        ownerId,
+      },
+      select: {
+        id: true,
+        title: true,
+        originalName: true,
+        ownerId: true,
+        storageProvider: true,
+        storageKey: true,
+        thumbKey: true,
+        webpKey: true,
+        avifKey: true,
+        mimeType: true,
+      },
+    });
+
+    if (!image) {
+      throw new ForbiddenException('Image is not accessible');
+    }
+
+    const selected = this.selectAssetKey(image, variant);
+    if (!selected.key) {
+      throw new NotFoundException('Image asset not found');
+    }
+
+    const setting = await this.getImageStorageSetting(
+      image.ownerId,
+      image.storageProvider,
+    );
+    const stream = await this.storage.createReadStreamIfExists(
+      selected.key,
+      setting,
+    );
+    let buffer: Buffer | undefined;
+    if (!stream) {
+      try {
+        buffer = await this.storage.getObjectBuffer(selected.key, setting);
+      } catch {
+        throw new NotFoundException('Image asset not found');
+      }
+    }
+
+    return {
+      filename: image.originalName || image.title,
+      contentType:
+        selected.contentType ||
+        lookup(selected.key) ||
+        'application/octet-stream',
+      stream,
+      buffer,
+    };
+  }
+
   private async ensureAlbum(ownerId: string, albumId: string) {
     const album = await this.prisma.album.findFirst({
       where: {
@@ -559,6 +618,38 @@ export class ImagesService {
       ...image,
       sizeBytes: Number(image.sizeBytes),
     };
+  }
+
+  private selectAssetKey(
+    image: {
+      storageKey: string;
+      thumbKey: string | null;
+      webpKey: string | null;
+      avifKey: string | null;
+      mimeType: string;
+    },
+    variant?: string,
+  ) {
+    if (!variant || variant === 'thumb') {
+      return {
+        key: image.thumbKey ?? image.storageKey,
+        contentType: image.thumbKey ? 'image/webp' : image.mimeType,
+      };
+    }
+
+    if (variant === 'original') {
+      return { key: image.storageKey, contentType: image.mimeType };
+    }
+
+    if (variant === 'webp') {
+      return { key: image.webpKey, contentType: 'image/webp' };
+    }
+
+    if (variant === 'avif') {
+      return { key: image.avifKey, contentType: 'image/avif' };
+    }
+
+    throw new BadRequestException('Invalid image asset variant');
   }
 
   private async getImageStorageSetting(

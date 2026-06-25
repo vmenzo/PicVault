@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BACKUP_DIR="${PICVAULT_BACKUP_DIR:-${IMAGE_BED_BACKUP_DIR:-${ROOT_DIR}/backups}}"
+BACKUP_DIR="${PICVAULT_BACKUP_DIR:-${ROOT_DIR}/backups}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(basename "${ROOT_DIR}")}"
 STORAGE_VOLUME="${COMPOSE_PROJECT_NAME}_backend_storage"
 STAMP="$(date +%Y%m%d-%H%M%S)"

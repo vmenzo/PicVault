@@ -7,6 +7,7 @@ import {
   permanentDeleteImageApi,
   restoreImageApi,
 } from '@/api/images';
+import ProtectedImage from '@/components/ProtectedImage.vue';
 import type { ImageItem } from '@/api/types';
 import { formatBytes, formatDate } from '@/utils/format';
 
@@ -54,7 +55,7 @@ onMounted(load);
         <el-table-column label="图片" min-width="280">
           <template #default="{ row }">
             <div class="image-row">
-              <img :src="row.thumbUrl || row.publicUrl" :alt="row.title" />
+              <ProtectedImage :image="row" :alt="row.title" />
               <div>
                 <strong>{{ row.title }}</strong>
                 <span>{{ row.originalName }}</span>

@@ -83,6 +83,16 @@ export function reprocessImageApi(id: string) {
   return http.post<unknown, { ok: boolean }>(`/images/${id}/reprocess`, {});
 }
 
+export function imageAssetApi(
+  id: string,
+  variant: 'thumb' | 'original' | 'webp' | 'avif' = 'thumb',
+) {
+  return http.get<unknown, Blob>(`/images/${id}/asset`, {
+    params: { variant },
+    responseType: 'blob',
+  });
+}
+
 export function publicImageInfoApi(id: string) {
   return http.get<unknown, ImageItem>(`/public/images/${id}`);
 }

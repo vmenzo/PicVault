@@ -16,6 +16,7 @@ import {
 import { ElMessage, ElMessageBox } from 'element-plus';
 import { useRoute, useRouter } from 'vue-router';
 import { listAlbumsApi } from '@/api/albums';
+import ProtectedImage from '@/components/ProtectedImage.vue';
 import {
   bulkImagesApi,
   deleteImageApi,
@@ -97,6 +98,7 @@ const allVisibleSelected = computed(
 const selectedBulkLinks = computed(() =>
   selectedImages.value
     .map((image) => formatImageLink(image, linkFormat.value))
+    .filter(Boolean)
     .join('\n'),
 );
 
@@ -168,7 +170,11 @@ function openDetail(image: ImageItem) {
 }
 
 function linkFormats(image: ImageItem) {
-  const publicUrl = toAbsoluteUrl(image.publicUrl);
+  if (!isShareable(image)) {
+    return [];
+  }
+
+  const publicUrl = shareablePublicUrl(image);
   const rows = [
     { label: 'URL', value: publicUrl },
     { label: 'Markdown', value: `![${image.title}](${publicUrl})` },
@@ -190,13 +196,23 @@ function formatImageLink(
   image: ImageItem,
   format: 'url' | 'markdown' | 'html' | 'bbcode' | 'share' | 'download',
 ) {
-  const publicUrl = toAbsoluteUrl(image.publicUrl);
+  if (!isShareable(image)) return '';
+
+  const publicUrl = shareablePublicUrl(image);
   if (format === 'markdown') return `![${image.title}](${publicUrl})`;
   if (format === 'html') return `<img src="${publicUrl}" alt="${image.title}">`;
   if (format === 'bbcode') return `[img]${publicUrl}[/img]`;
   if (format === 'share') return shareUrl(image);
   if (format === 'download') return downloadUrl(image);
   return publicUrl;
+}
+
+function isShareable(image: ImageItem) {
+  return image.status === 'READY' && image.visibility !== 'PRIVATE';
+}
+
+function shareablePublicUrl(image: ImageItem) {
+  return isShareable(image) ? toAbsoluteUrl(image.publicUrl) : '';
 }
 
 async function copyText(value: string, label = '内容') {
@@ -360,11 +376,13 @@ async function reprocess(row: ImageItem) {
 }
 
 function shareUrl(image: ImageItem) {
-  return `${window.location.origin}/s/${image.id}`;
+  return isShareable(image) ? `${window.location.origin}/s/${image.id}` : '';
 }
 
 function downloadUrl(image: ImageItem) {
-  return `${window.location.origin}/api/public/images/${image.id}/download`;
+  return isShareable(image)
+    ? `${window.location.origin}/api/public/images/${image.id}/download`
+    : '';
 }
 
 onMounted(async () => {
@@ -513,7 +531,8 @@ watch(
             @click="
               copyText(
                 selectedImages
-                  .map((item) => toAbsoluteUrl(item.publicUrl))
+                  .map(shareablePublicUrl)
+                  .filter(Boolean)
                   .join('\n'),
                 '外链',
               )
@@ -532,7 +551,10 @@ watch(
             size="small"
             @click="
               copyText(
-                selectedImages.map((item) => shareUrl(item)).join('\n'),
+                selectedImages
+                  .map((item) => shareUrl(item))
+                  .filter(Boolean)
+                  .join('\n'),
                 '分享页',
               )
             "
@@ -610,7 +632,7 @@ watch(
         :class="{ selected: selectedIds.includes(image.id) }"
       >
         <div class="image-thumb" @click="openDetail(image)">
-          <img :src="image.thumbUrl || image.publicUrl" :alt="image.title" />
+          <ProtectedImage :image="image" :alt="image.title" />
           <el-icon v-if="image.favorite" class="favorite-badge"
             ><Star
           /></el-icon>
@@ -651,15 +673,20 @@ watch(
             size="small"
             :icon="Link"
             @click="copyText(toAbsoluteUrl(image.publicUrl), '外链')"
+            :disabled="!isShareable(image)"
           >
             外链
           </el-button>
-          <el-button size="small" @click="copyText(shareUrl(image), '分享页')"
+          <el-button
+            size="small"
+            :disabled="!isShareable(image)"
+            @click="copyText(shareUrl(image), '分享页')"
             >分享</el-button
           >
           <el-button
             size="small"
             :icon="Download"
+            :disabled="!isShareable(image)"
             @click="openUrl(downloadUrl(image))"
           />
           <el-button size="small" :icon="Edit" @click="openDetail(image)"
@@ -695,7 +722,7 @@ watch(
         <el-table-column label="图片" min-width="280">
           <template #default="{ row }">
             <div class="image-row">
-              <img :src="row.thumbUrl || row.publicUrl" :alt="row.title" />
+              <ProtectedImage :image="row" :alt="row.title" />
               <div>
                 <strong>{{ row.title }}</strong>
                 <span>{{ row.originalName }}</span>
@@ -743,14 +770,19 @@ watch(
             <el-button
               size="small"
               :icon="Link"
-              @click="copyText(toAbsoluteUrl(row.publicUrl), '外链')"
+              :disabled="!isShareable(row)"
+              @click="copyText(shareablePublicUrl(row), '外链')"
             />
-            <el-button size="small" @click="copyText(shareUrl(row), '分享页')"
+            <el-button
+              size="small"
+              :disabled="!isShareable(row)"
+              @click="copyText(shareUrl(row), '分享页')"
               >分享</el-button
             >
             <el-button
               size="small"
               :icon="Download"
+              :disabled="!isShareable(row)"
               @click="openUrl(downloadUrl(row))"
             />
             <el-button size="small" :icon="Edit" @click="openDetail(row)"
@@ -773,9 +805,9 @@ watch(
 
     <el-drawer v-model="detailVisible" title="图片详情" size="520px">
       <div v-if="selectedImage" class="image-detail">
-        <img
+        <ProtectedImage
           class="detail-preview"
-          :src="selectedImage.thumbUrl || selectedImage.publicUrl"
+          :image="selectedImage"
           :alt="selectedImage.title"
         />
 
