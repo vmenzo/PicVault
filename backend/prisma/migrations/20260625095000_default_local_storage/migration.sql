@@ -1,0 +1,5 @@
+ALTER TABLE "Image"
+ALTER COLUMN "storageProvider" SET DEFAULT 'LOCAL';
+
+ALTER TABLE "AppSetting"
+ALTER COLUMN "storageProvider" SET DEFAULT 'LOCAL';

@@ -62,7 +62,7 @@ export class SettingsService {
 
   async getRuntime(ownerId: string) {
     const setting = await this.findRuntimeSetting(ownerId);
-    const storageProvider = setting?.storageProvider ?? StorageProvider.S3;
+    const storageProvider = setting?.storageProvider ?? StorageProvider.LOCAL;
     const s3AccessKey =
       setting?.s3AccessKey ?? this.config.get<string>('S3_ACCESS_KEY');
     const s3SecretKey =

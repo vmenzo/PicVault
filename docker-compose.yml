@@ -20,7 +20,7 @@ services:
       ENABLE_HSTS: ${ENABLE_HSTS:-false}
       FRAME_ANCESTORS: ${FRAME_ANCESTORS:-self}
     ports:
-      - "7899:7899"
+      - "${APP_HOST_PORT:-7899}:7899"
     depends_on:
       backend:
         condition: service_started

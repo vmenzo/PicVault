@@ -11,6 +11,24 @@ A full-stack image hosting starter built with Vue 3, Element Plus, NestJS, Postg
 
 ## Production Deploy
 
+One-command Docker installation on a fresh VPS:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vmenzo/image-bed/main/scripts/install.sh | bash
+```
+
+If the current shell is not root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vmenzo/image-bed/main/scripts/install.sh | sudo bash
+```
+
+Optional custom port or public URL:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vmenzo/image-bed/main/scripts/install.sh | PICVAULT_PORT=7899 APP_PUBLIC_URL=https://img.example.com bash
+```
+
 After the repository is pushed to GitHub, deploy from a VPS with Docker and Docker Compose:
 
 ```bash
@@ -34,7 +52,7 @@ Swagger is disabled by default. Set `ENABLE_SWAGGER=true` only for trusted envir
 
 PostgreSQL, Redis, and the backend are internal Compose services and are not exposed to the public host.
 
-Configure a third-party S3-compatible provider in `.env` or in Control Center before using object-storage uploads. Supported examples include Cloudflare R2, AWS S3, Alibaba OSS S3-compatible endpoints, Tencent COS S3-compatible endpoints, and other compatible services. The bucket must allow browser `PUT` requests through CORS.
+Fresh installs default to local disk storage so uploads work immediately. Configure a third-party S3-compatible provider in `.env` or in Control Center when you want browser direct-to-object-storage uploads. Supported examples include Cloudflare R2, AWS S3, Alibaba OSS S3-compatible endpoints, Tencent COS S3-compatible endpoints, and other compatible services. The bucket must allow browser `PUT` requests through CORS.
 
 To update an existing deployment:
 

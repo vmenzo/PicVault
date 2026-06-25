@@ -91,7 +91,7 @@ model Image {
   sizeBytes   BigInt
   width       Int?
   height      Int?
-  storageProvider StorageProvider @default(S3)
+  storageProvider StorageProvider @default(LOCAL)
   storageKey  String      @unique
   publicUrl   String
   thumbKey    String?
@@ -124,7 +124,7 @@ model AppSetting {
   ownerId           String     @unique
   owner             User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   publicBaseUrl     String?
-  storageProvider   StorageProvider @default(S3)
+  storageProvider   StorageProvider @default(LOCAL)
   s3Endpoint        String?
   s3Region          String?
   s3Bucket          String?
