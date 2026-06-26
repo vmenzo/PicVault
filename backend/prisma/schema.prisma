@@ -120,45 +120,46 @@ model Image {
 }
 
 model AppSetting {
-  id                String     @id @default(cuid())
-  ownerId           String     @unique
-  owner             User       @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  publicBaseUrl     String?
-  storageProvider   StorageProvider @default(LOCAL)
-  s3Endpoint        String?
-  s3Region          String?
-  s3Bucket          String?
-  s3AccessKey       String?
-  s3SecretKey       String?
-  s3ForcePathStyle  Boolean    @default(true)
-  localStoragePath  String?
-  maxSizeBytes      Int        @default(52428800)
-  defaultQuotaBytes BigInt     @default(1073741824)
-  allowedTypes      String[]   @default(["image/jpeg", "image/png", "image/webp", "image/gif"])
-  defaultVisibility Visibility @default(PRIVATE)
-  generateThumbnail Boolean    @default(true)
-  generateWebp      Boolean    @default(true)
-  generateAvif      Boolean    @default(false)
-  stripMetadata     Boolean    @default(true)
-  watermark         Boolean    @default(false)
-  watermarkText     String     @default("PicVault")
-  hotlinkProtection Boolean    @default(false)
-  uploadAudit       Boolean    @default(false)
-  apiUpload         Boolean    @default(true)
-  telegramBotEnabled Boolean   @default(false)
-  telegramBotToken   String?
-  telegramAllowedChatIds String[] @default([])
-  telegramAlbumId    String?
-  telegramLastUpdateId Int?
-  smtpEnabled       Boolean    @default(false)
-  smtpHost          String?
-  smtpPort          Int?
-  smtpSecure        Boolean    @default(true)
-  smtpUsername      String?
-  smtpPassword      String?
-  smtpFrom          String?
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  id                     String          @id @default(cuid())
+  ownerId                String          @unique
+  owner                  User            @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  publicBaseUrl          String?
+  appPublicUrl           String?
+  storageProvider        StorageProvider @default(LOCAL)
+  s3Endpoint             String?
+  s3Region               String?
+  s3Bucket               String?
+  s3AccessKey            String?
+  s3SecretKey            String?
+  s3ForcePathStyle       Boolean         @default(true)
+  localStoragePath       String?
+  maxSizeBytes           Int             @default(52428800)
+  defaultQuotaBytes      BigInt          @default(1073741824)
+  allowedTypes           String[]        @default(["image/jpeg", "image/png", "image/webp", "image/gif"])
+  defaultVisibility      Visibility      @default(PRIVATE)
+  generateThumbnail      Boolean         @default(true)
+  generateWebp           Boolean         @default(true)
+  generateAvif           Boolean         @default(false)
+  stripMetadata          Boolean         @default(true)
+  watermark              Boolean         @default(false)
+  watermarkText          String          @default("PicVault")
+  hotlinkProtection      Boolean         @default(false)
+  uploadAudit            Boolean         @default(false)
+  apiUpload              Boolean         @default(true)
+  telegramBotEnabled     Boolean         @default(false)
+  telegramBotToken       String?
+  telegramAllowedChatIds String[]        @default([])
+  telegramAlbumId        String?
+  telegramLastUpdateId   Int?
+  smtpEnabled            Boolean         @default(false)
+  smtpHost               String?
+  smtpPort               Int?
+  smtpSecure             Boolean         @default(true)
+  smtpUsername           String?
+  smtpPassword           String?
+  smtpFrom               String?
+  createdAt              DateTime        @default(now())
+  updatedAt              DateTime        @updatedAt
 }
 
 model PasswordResetToken {

@@ -18,6 +18,11 @@ export class UpdateAppSettingDto {
   @IsUrl({ require_tld: false })
   publicBaseUrl?: string | null;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsUrl({ require_tld: false })
+  appPublicUrl?: string | null;
+
   @ApiPropertyOptional({ enum: StorageProvider })
   @IsOptional()
   @IsEnum(StorageProvider)

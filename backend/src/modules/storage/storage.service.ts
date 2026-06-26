@@ -39,7 +39,7 @@ export class StorageService implements OnModuleInit {
   onModuleInit() {
     this.defaultBucket = this.config.get<string>('S3_BUCKET') ?? '';
     this.defaultPublicBaseUrl =
-      this.config.get<string>('PUBLIC_IMAGE_BASE_URL') ?? '';
+      this.config.get<string>('PUBLIC_IMAGE_BASE_URL') ?? '/api/public/files';
     this.defaultUploadEndpoint =
       this.config.get<string>('S3_UPLOAD_ENDPOINT') ||
       this.config.get<string>('S3_ENDPOINT') ||
@@ -119,18 +119,33 @@ export class StorageService implements OnModuleInit {
   }
 
   async createReadStreamIfExists(key: string, setting?: StorageRuntimeConfig) {
-    if (this.getProvider(setting) !== StorageProvider.LOCAL) {
-      return null;
+    if (this.getProvider(setting) === StorageProvider.LOCAL) {
+      const filePath = this.getLocalPath(key, setting);
+      try {
+        await access(filePath);
+      } catch {
+        return null;
+      }
+
+      return createReadStream(filePath);
     }
 
-    const filePath = this.getLocalPath(key, setting);
     try {
-      await access(filePath);
+      const result = await this.createS3Client(setting).send(
+        new GetObjectCommand({
+          Bucket: this.getBucket(setting),
+          Key: key,
+        }),
+      );
+
+      if (!result.Body) {
+        return null;
+      }
+
+      return result.Body as Readable;
     } catch {
       return null;
     }
-
-    return createReadStream(filePath);
   }
 
   async putObject(input: {
@@ -264,9 +279,6 @@ export class StorageService implements OnModuleInit {
     }
 
     const missing = [
-      setting?.publicBaseUrl?.trim() || this.defaultPublicBaseUrl
-        ? null
-        : 'Public Base URL',
       this.getBucket(setting) ? null : 'Bucket',
       setting?.s3Endpoint?.trim() || this.config.get<string>('S3_ENDPOINT')
         ? null

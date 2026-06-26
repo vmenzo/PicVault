@@ -16,6 +16,7 @@ export function getUploadPolicyApi() {
 
 export function updateAppSettingApi(payload: {
   publicBaseUrl?: string | null;
+  appPublicUrl?: string | null;
   storageProvider?: StorageProvider;
   s3Endpoint?: string | null;
   s3Region?: string | null;

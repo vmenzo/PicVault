@@ -39,6 +39,7 @@ export class ImagesService {
     const pageSize = query.pageSize ?? 24;
     const sortBy = query.sortBy ?? 'createdAt';
     const sortOrder = query.sortOrder ?? 'desc';
+    const runtime = await this.settings.getRuntime(ownerId);
     const where: Prisma.ImageWhereInput = {
       ownerId,
       status: query.status ?? { not: ImageStatus.DELETED },
@@ -74,7 +75,12 @@ export class ImagesService {
     ]);
 
     return {
-      items: items.map(this.serializeImage),
+      items: items.map((image) =>
+        this.serializeImage(image, {
+          ...runtime,
+          storageProvider: image.storageProvider,
+        }),
+      ),
       total,
       page,
       pageSize,
@@ -167,7 +173,10 @@ export class ImagesService {
       },
     });
 
-    return this.serializeImage(image);
+    return this.serializeImage(
+      image,
+      await this.getImageStorageSetting(ownerId, image.storageProvider),
+    );
   }
 
   async remove(ownerId: string, id: string) {
@@ -216,7 +225,10 @@ export class ImagesService {
       },
     });
 
-    return this.serializeImage(image);
+    return this.serializeImage(
+      image,
+      await this.getImageStorageSetting(ownerId, image.storageProvider),
+    );
   }
 
   async permanentRemove(ownerId: string, id: string) {
@@ -483,10 +495,13 @@ export class ImagesService {
       },
     });
 
-    return this.serializeImage({
-      ...image,
-      views: image.views + 1,
-    });
+    return this.serializeImage(
+      {
+        ...image,
+        views: image.views + 1,
+      },
+      await this.getImageStorageSetting(image.ownerId, image.storageProvider),
+    );
   }
 
   async download(id: string) {
@@ -613,10 +628,32 @@ export class ImagesService {
     }
   }
 
-  private serializeImage<T extends { sizeBytes: bigint }>(image: T) {
+  private serializeImage<
+    T extends {
+      sizeBytes: bigint;
+      storageKey: string;
+      storageProvider: StorageProvider;
+      thumbKey?: string | null;
+      webpKey?: string | null;
+      avifKey?: string | null;
+      thumbUrl?: string | null;
+      webpUrl?: string | null;
+      avifUrl?: string | null;
+    },
+  >(image: T, setting: StorageRuntimeConfig) {
     return {
       ...image,
       sizeBytes: Number(image.sizeBytes),
+      publicUrl: this.storage.getPublicUrlWithBase(image.storageKey, setting),
+      thumbUrl: image.thumbKey
+        ? this.storage.getPublicUrlWithBase(image.thumbKey, setting)
+        : (image.thumbUrl ?? null),
+      webpUrl: image.webpKey
+        ? this.storage.getPublicUrlWithBase(image.webpKey, setting)
+        : (image.webpUrl ?? null),
+      avifUrl: image.avifKey
+        ? this.storage.getPublicUrlWithBase(image.avifKey, setting)
+        : (image.avifUrl ?? null),
     };
   }
 

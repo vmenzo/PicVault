@@ -70,6 +70,10 @@ export class SettingsService {
 
     return {
       publicBaseUrl: setting?.publicBaseUrl ?? null,
+      appPublicUrl:
+        setting?.appPublicUrl ??
+        this.config.get<string>('APP_PUBLIC_URL') ??
+        null,
       storageProvider,
       s3Endpoint:
         setting?.s3Endpoint ?? this.config.get<string>('S3_ENDPOINT') ?? null,
@@ -143,6 +147,26 @@ export class SettingsService {
     return this.mail.sendTest(email);
   }
 
+  async getAppPublicUrl() {
+    const setting = await this.prisma.appSetting.findFirst({
+      where: {
+        appPublicUrl: { not: null },
+        owner: {
+          role: UserRole.ADMIN,
+          disabled: false,
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      select: { appPublicUrl: true },
+    });
+
+    return (
+      setting?.appPublicUrl?.trim() ||
+      this.config.get<string>('APP_PUBLIC_URL')?.trim() ||
+      null
+    );
+  }
+
   private toData(): Prisma.AppSettingUncheckedUpdateInput;
   private toData(
     dto: UpdateAppSettingDto,
@@ -153,6 +177,8 @@ export class SettingsService {
     if (!dto) return data;
     if (dto.publicBaseUrl !== undefined)
       data.publicBaseUrl = this.clean(dto.publicBaseUrl);
+    if (dto.appPublicUrl !== undefined)
+      data.appPublicUrl = this.clean(dto.appPublicUrl);
     if (dto.storageProvider !== undefined)
       data.storageProvider = dto.storageProvider;
     if (dto.s3Endpoint !== undefined)
@@ -227,6 +253,7 @@ export class SettingsService {
   private serialize(setting: {
     id: string;
     publicBaseUrl: string | null;
+    appPublicUrl: string | null;
     storageProvider: StorageProvider;
     s3Endpoint: string | null;
     s3Region: string | null;

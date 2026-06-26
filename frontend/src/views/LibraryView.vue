@@ -640,7 +640,10 @@ watch(
             class="image-check"
             :model-value="selectedIds.includes(image.id)"
             @click.stop
-            @change="handleCardCheck(image.id)"
+            @change="
+              (checked: string | number | boolean) =>
+                handleCardCheck(image.id)(checked)
+            "
           />
           <el-tag
             size="small"
@@ -715,7 +718,10 @@ watch(
           <template #default="{ row }">
             <el-checkbox
               :model-value="selectedIds.includes(row.id)"
-              @change="handleCardCheck(row.id)"
+              @change="
+                (checked: string | number | boolean) =>
+                  handleCardCheck(row.id)(checked)
+              "
             />
           </template>
         </el-table-column>
