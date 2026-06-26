@@ -6,7 +6,11 @@ import {
   SuccessFilled,
   WarningFilled,
 } from '@element-plus/icons-vue';
-import { systemHealthApi, type SystemHealth } from '@/api/system';
+import {
+  systemHealthApi,
+  type ServiceStatus,
+  type SystemHealth,
+} from '@/api/system';
 import { formatBytes, formatDate } from '@/utils/format';
 
 const loading = ref(false);
@@ -40,6 +44,36 @@ async function load() {
   }
 }
 
+function statusTagType(status?: ServiceStatus['status']) {
+  return (
+    {
+      ok: 'success',
+      warning: 'warning',
+      error: 'danger',
+    }[status ?? 'warning'] ?? 'info'
+  );
+}
+
+function statusLabel(status?: ServiceStatus['status']) {
+  return (
+    {
+      ok: '正常',
+      warning: '告警',
+      error: '异常',
+    }[status ?? 'warning'] ?? '未知'
+  );
+}
+
+function overallStatusLabel(status?: string) {
+  return (
+    {
+      ok: '正常',
+      warning: '告警',
+      degraded: '异常',
+    }[status ?? 'warning'] ?? '未知'
+  );
+}
+
 onMounted(load);
 </script>
 
@@ -52,7 +86,7 @@ onMounted(load);
         </div>
         <div>
           <span>服务状态</span>
-          <strong>{{ health?.status || '-' }}</strong>
+          <strong>{{ overallStatusLabel(health?.status) }}</strong>
         </div>
       </el-card>
       <el-card shadow="never" class="metric-card">
@@ -112,14 +146,31 @@ onMounted(load);
         </template>
         <el-descriptions :column="1" border>
           <el-descriptions-item label="数据库">
-            <el-tag type="success">{{ health?.services.database }}</el-tag>
+            <el-tag :type="statusTagType(health?.services.database.status)">
+              {{ statusLabel(health?.services.database.status) }}
+            </el-tag>
+            <template v-if="health?.services.database.message">
+              {{ health.services.database.message }}
+            </template>
           </el-descriptions-item>
           <el-descriptions-item label="Redis">
+            <el-tag :type="statusTagType(health?.services.redis.status)">
+              {{ statusLabel(health?.services.redis.status) }}
+            </el-tag>
             {{ health?.services.redis.host }}:{{ health?.services.redis.port }}
+            <template v-if="health?.services.redis.message">
+              {{ health.services.redis.message }}
+            </template>
           </el-descriptions-item>
           <el-descriptions-item label="对象存储">
+            <el-tag :type="statusTagType(health?.services.storage.status)">
+              {{ statusLabel(health?.services.storage.status) }}
+            </el-tag>
             {{ health?.services.storage.provider }} /
             {{ health?.services.storage.endpoint }}
+            <template v-if="health?.services.storage.message">
+              {{ health.services.storage.message }}
+            </template>
           </el-descriptions-item>
           <el-descriptions-item label="Bucket">
             {{ health?.services.storage.bucket }}
@@ -131,22 +182,40 @@ onMounted(load);
             {{ health?.services.telegram.enabledAccounts ?? 0 }} 个账号启用
           </el-descriptions-item>
           <el-descriptions-item label="处理队列">
+            <el-tag :type="statusTagType(health?.services.queue.status)">
+              {{ statusLabel(health?.services.queue.status) }}
+            </el-tag>
             等待 {{ health?.services.queue.waiting ?? 0 }} / 运行
             {{ health?.services.queue.active ?? 0 }} / 失败
             {{ health?.services.queue.failed ?? 0 }}
+            <template v-if="health?.services.queue.message">
+              {{ health.services.queue.message }}
+            </template>
           </el-descriptions-item>
           <el-descriptions-item label="磁盘">
+            <el-tag :type="statusTagType(health?.services.disk.status)">
+              {{ statusLabel(health?.services.disk.status) }}
+            </el-tag>
             {{ health?.services.disk.path }}， 已用
             {{ formatBytes(health?.services.disk.usedBytes ?? 0) }} /
             {{ formatBytes(health?.services.disk.totalBytes ?? 0) }}
+            <template v-if="health?.services.disk.message">
+              {{ health.services.disk.message }}
+            </template>
           </el-descriptions-item>
           <el-descriptions-item label="最近备份">
+            <el-tag :type="statusTagType(health?.services.backup.status)">
+              {{ statusLabel(health?.services.backup.status) }}
+            </el-tag>
             <template v-if="health?.services.backup.latest">
               {{ health.services.backup.latest.name }}，
               {{ formatBytes(health.services.backup.latest.sizeBytes) }}，
               {{ health.services.backup.latest.fileCount }} 个文件
             </template>
             <template v-else>暂无备份</template>
+            <template v-if="health?.services.backup.message">
+              {{ health.services.backup.message }}
+            </template>
           </el-descriptions-item>
         </el-descriptions>
       </el-card>

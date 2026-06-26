@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
+import { SettingsModule } from '../settings/settings.module';
+import { StorageModule } from '../storage/storage.module';
 import { SystemController } from './system.controller';
 import { SystemService } from './system.service';
 
@@ -8,6 +10,8 @@ import { SystemService } from './system.service';
     BullModule.registerQueue({
       name: 'image-processing',
     }),
+    SettingsModule,
+    StorageModule,
   ],
   controllers: [SystemController],
   providers: [SystemService],

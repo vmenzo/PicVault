@@ -37,6 +37,8 @@ const telegram = ref<TelegramStatus | null>(null);
 const selectedUser = ref<AdminUser | null>(null);
 const userDialogVisible = ref(false);
 const passwordDialogVisible = ref(false);
+const maintenanceLoading = ref(false);
+const maintenanceAction = ref<'reprocess' | 'migrate' | ''>('');
 const userQuery = reactive({
   page: 1,
   pageSize: 20,
@@ -100,7 +102,12 @@ async function loadUsers() {
 
 async function loadMaintenance() {
   if (!isAdmin.value) return;
-  maintenance.value = await maintenanceSummaryApi();
+  maintenanceLoading.value = true;
+  try {
+    maintenance.value = await maintenanceSummaryApi();
+  } finally {
+    maintenanceLoading.value = false;
+  }
 }
 
 async function loadAudit() {
@@ -180,27 +187,47 @@ async function recalcUsage(row: AdminUser) {
 }
 
 async function reprocessMissing() {
-  const result = await reprocessImagesApi({
-    limit: maintenanceForm.reprocessLimit,
-    missingOnly: maintenanceForm.missingOnly,
-  });
-  ElMessage.success(`已提交 ${result.affected} 张图片处理任务`);
-  await loadMaintenance();
+  maintenanceAction.value = 'reprocess';
+  try {
+    const result = await reprocessImagesApi({
+      limit: maintenanceForm.reprocessLimit,
+      missingOnly: maintenanceForm.missingOnly,
+    });
+    if (result.affected) {
+      ElMessage.success(`已提交 ${result.affected} 张图片处理任务`);
+    } else {
+      ElMessage.info('没有匹配的图片需要处理');
+    }
+    await loadMaintenance();
+  } finally {
+    maintenanceAction.value = '';
+  }
 }
 
 async function migrateStorage() {
-  await ElMessageBox.confirm(
-    `确认迁移最多 ${maintenanceForm.migrateLimit} 张图片到 ${maintenanceForm.targetProvider}？`,
-    '存储迁移',
-    { type: 'warning' },
-  );
-  const result = await migrateImagesApi({
-    targetProvider: maintenanceForm.targetProvider,
-    limit: maintenanceForm.migrateLimit,
-    reprocess: true,
-  });
-  ElMessage.success(`已迁移 ${result.affected} 张，失败 ${result.failed} 张`);
-  await loadMaintenance();
+  maintenanceAction.value = 'migrate';
+  try {
+    await ElMessageBox.confirm(
+      `确认迁移最多 ${maintenanceForm.migrateLimit} 张图片到 ${maintenanceForm.targetProvider}？`,
+      '存储迁移',
+      { type: 'warning' },
+    );
+    const result = await migrateImagesApi({
+      targetProvider: maintenanceForm.targetProvider,
+      limit: maintenanceForm.migrateLimit,
+      reprocess: true,
+    });
+    if (result.affected || result.failed) {
+      ElMessage.success(
+        `已迁移 ${result.affected} 张，失败 ${result.failed} 张`,
+      );
+    } else {
+      ElMessage.info('没有需要迁移的图片');
+    }
+    await loadMaintenance();
+  } finally {
+    maintenanceAction.value = '';
+  }
 }
 
 async function pollTelegram() {
@@ -372,7 +399,11 @@ onMounted(loadAll);
           />
         </el-tab-pane>
 
-        <el-tab-pane label="维护工具" name="maintenance">
+        <el-tab-pane
+          label="维护工具"
+          name="maintenance"
+          v-loading="maintenanceLoading"
+        >
           <div class="settings-grid wide">
             <el-card shadow="never" class="panel-card">
               <template #header><strong>派生图修复</strong></template>
@@ -390,7 +421,10 @@ onMounted(loadAll);
                     active-text="只处理缺失缩略图/WebP"
                   />
                 </el-form-item>
-                <el-button type="primary" @click="reprocessMissing"
+                <el-button
+                  type="primary"
+                  :loading="maintenanceAction === 'reprocess'"
+                  @click="reprocessMissing"
                   >提交处理任务</el-button
                 >
               </el-form>
@@ -415,7 +449,10 @@ onMounted(loadAll);
                     :max="500"
                   />
                 </el-form-item>
-                <el-button type="primary" @click="migrateStorage"
+                <el-button
+                  type="primary"
+                  :loading="maintenanceAction === 'migrate'"
+                  @click="migrateStorage"
                   >开始迁移</el-button
                 >
               </el-form>

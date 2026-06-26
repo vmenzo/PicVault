@@ -1,5 +1,10 @@
 import { http } from './http';
 
+export type ServiceStatus = {
+  status: 'ok' | 'warning' | 'error';
+  message?: string;
+};
+
 export type SystemHealth = {
   status: string;
   uptimeSeconds: number;
@@ -13,12 +18,12 @@ export type SystemHealth = {
     arrayBuffers: number;
   };
   services: {
-    database: string;
-    redis: {
+    database: ServiceStatus;
+    redis: ServiceStatus & {
       host: string;
       port: number;
     };
-    storage: {
+    storage: ServiceStatus & {
       provider: string;
       endpoint: string;
       bucket: string;
@@ -27,7 +32,7 @@ export type SystemHealth = {
     telegram: {
       enabledAccounts: number;
     };
-    queue: {
+    queue: ServiceStatus & {
       waiting: number;
       active: number;
       completed: number;
@@ -35,13 +40,13 @@ export type SystemHealth = {
       delayed: number;
       paused: number;
     };
-    disk: {
+    disk: ServiceStatus & {
       path: string;
       totalBytes: number;
       freeBytes: number;
       usedBytes: number;
     };
-    backup: {
+    backup: ServiceStatus & {
       directory: string;
       count: number;
       latest: null | {
