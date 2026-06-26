@@ -495,7 +495,7 @@ watch(
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="站点公开域名">
+          <el-form-item label="站点公开域名 / Telegram 外链域名">
             <el-input
               v-model="site.appPublicUrl"
               placeholder="https://img.example.com"
@@ -506,6 +506,10 @@ watch(
                 </el-button>
               </template>
             </el-input>
+            <div class="form-help">
+              通过反向代理访问时填写最终公网 HTTPS 域名，Telegram
+              上传完成后的图片链接和分享页会使用这里。
+            </div>
           </el-form-item>
         </el-form>
       </el-card>

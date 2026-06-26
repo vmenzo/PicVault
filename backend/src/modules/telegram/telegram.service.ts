@@ -54,6 +54,12 @@ type TelegramPanel = {
   keyboard?: InlineKeyboardButton[][];
 };
 
+type TelegramUrlSetting = {
+  publicBaseUrl?: string | null;
+  appPublicUrl?: string | null;
+  storageProvider?: StorageProvider;
+};
+
 const CALLBACK_PREFIX = 'pv:';
 
 @Injectable()
@@ -292,7 +298,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         visibility: setting.defaultVisibility,
         setting,
       });
-      const canOpenPublic = this.isPublicReadyImage(image);
+      const links = this.publicLinksForImage(image, setting);
+      const markdown = links.imageUrl
+        ? `![${image.originalName}](${links.imageUrl})`
+        : '';
 
       await this.sendPanel(token, chatId, {
         text: [
@@ -302,25 +311,28 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           `大小：${this.formatBytes(Number(image.sizeBytes))}`,
           `可见性：${this.visibilityText(image.visibility)}`,
           this.publicLinkLine(image, setting),
+          links.shareUrl ? `分享页：${links.shareUrl}` : '',
+          markdown ? `Markdown：${markdown}` : '',
         ]
           .filter(Boolean)
           .join('\n'),
         keyboard: [
-          ...(canOpenPublic
+          ...(links.imageUrl && links.shareUrl
             ? [
                 [
                   {
                     text: '打开图片',
-                    url: this.imagePublicUrl(image, setting),
+                    url: links.imageUrl,
                   },
                   {
                     text: '分享页',
-                    url: this.shareUrl(image.id, setting),
+                    url: links.shareUrl,
                   },
                 ],
               ]
             : []),
           [
+            { text: '复制格式', callback_data: 'pv:links' },
             { text: '最近图片', callback_data: 'pv:recent' },
             { text: '控制台', callback_data: 'pv:home' },
           ],
@@ -373,13 +385,34 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           ? await this.statusPanel(ownerId, setting)
           : command === '/recent'
             ? await this.recentPanel(ownerId, setting)
-            : command === '/albums'
-              ? await this.albumsPanel(ownerId)
-              : command === '/policy'
-                ? this.policyPanel(setting)
-                : command === '/help'
-                  ? this.helpPanel()
-                  : this.helpPanel('未知命令。');
+            : command === '/links'
+              ? await this.linksPanel(ownerId, setting)
+              : command === '/albums'
+                ? await this.albumsPanel(ownerId, setting)
+                : command === '/policy' || command === '/visibility'
+                  ? this.policyPanel(setting)
+                  : command === '/upload'
+                    ? this.uploadGuidePanel(setting)
+                    : command === '/site'
+                      ? this.sitePanel(setting)
+                      : command === '/public'
+                        ? await this.updateDefaultVisibility(
+                            ownerId,
+                            Visibility.PUBLIC,
+                          )
+                        : command === '/private'
+                          ? await this.updateDefaultVisibility(
+                              ownerId,
+                              Visibility.PRIVATE,
+                            )
+                          : command === '/unlisted'
+                            ? await this.updateDefaultVisibility(
+                                ownerId,
+                                Visibility.UNLISTED,
+                              )
+                            : command === '/help'
+                              ? this.helpPanel(undefined, setting)
+                              : this.helpPanel('未知命令。', setting);
 
     await this.sendPanel(token, chatId, panel);
   }
@@ -411,10 +444,16 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       panel = await this.statusPanel(ownerId, setting);
     } else if (action === 'recent') {
       panel = await this.recentPanel(ownerId, setting);
+    } else if (action === 'links') {
+      panel = await this.linksPanel(ownerId, setting);
     } else if (action === 'albums') {
-      panel = await this.albumsPanel(ownerId);
+      panel = await this.albumsPanel(ownerId, setting);
     } else if (action === 'policy') {
       panel = this.policyPanel(setting);
+    } else if (action === 'upload') {
+      panel = this.uploadGuidePanel(setting);
+    } else if (action === 'site') {
+      panel = this.sitePanel(setting);
     } else if (action.startsWith('vis:')) {
       const visibility = action.slice('vis:'.length) as Visibility;
       panel = await this.updateDefaultVisibility(ownerId, visibility);
@@ -544,21 +583,110 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           : '最近图片\n\n暂无图片。',
       keyboard: [
         ...images
-          .filter((image) => this.isPublicReadyImage(image))
+          .map((image) => ({
+            image,
+            links: this.publicLinksForImage(image, setting),
+          }))
+          .filter((item) => item.links.imageUrl && item.links.shareUrl)
           .slice(0, 3)
-          .map((image) => [
+          .map(({ image, links }) => [
             {
-              text: `打开：${image.title}`,
-              url: this.imagePublicUrl(image, setting),
+              text: `打开：${image.title || image.originalName}`,
+              url: links.imageUrl,
             },
-            { text: '分享页', url: this.shareUrl(image.id, setting) },
+            { text: '分享页', url: links.shareUrl },
           ]),
-        [{ text: '返回控制台', callback_data: 'pv:home' }],
+        [
+          { text: '复制格式', callback_data: 'pv:links' },
+          { text: '返回控制台', callback_data: 'pv:home' },
+        ],
       ],
     };
   }
 
-  private async albumsPanel(ownerId: string): Promise<TelegramPanel> {
+  private async linksPanel(
+    ownerId: string,
+    setting: Awaited<ReturnType<SettingsService['getRuntime']>>,
+  ): Promise<TelegramPanel> {
+    const image = await this.prisma.image.findFirst({
+      where: {
+        ownerId,
+        status: ImageStatus.READY,
+        visibility: { not: Visibility.PRIVATE },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        title: true,
+        originalName: true,
+        storageKey: true,
+        storageProvider: true,
+        visibility: true,
+        status: true,
+      },
+    });
+
+    if (!image) {
+      return {
+        text: '复制格式\n\n暂无可公开访问的图片。把默认可见性设为公开或隐藏链接后，再发送图片上传。',
+        keyboard: [
+          [
+            { text: '上传说明', callback_data: 'pv:upload' },
+            { text: '可见性', callback_data: 'pv:policy' },
+          ],
+          [{ text: '返回控制台', callback_data: 'pv:home' }],
+        ],
+      };
+    }
+
+    const title = image.title || image.originalName;
+    const links = this.publicLinksForImage(image, setting);
+    if (!links.imageUrl || !links.shareUrl) {
+      return {
+        text: [
+          '复制格式',
+          '',
+          links.message ||
+            '当前没有可用公网域名，请先在控制中心设置站点公开域名。',
+        ].join('\n'),
+        keyboard: [
+          [
+            { text: '站点入口', callback_data: 'pv:site' },
+            { text: '返回控制台', callback_data: 'pv:home' },
+          ],
+        ],
+      };
+    }
+
+    return {
+      text: [
+        '复制格式',
+        '',
+        title,
+        '',
+        `直链：${links.imageUrl}`,
+        `Markdown：![${title}](${links.imageUrl})`,
+        `HTML：<img src="${links.imageUrl}" alt="${title}">`,
+        `BBCode：[img]${links.imageUrl}[/img]`,
+        `分享页：${links.shareUrl}`,
+      ].join('\n'),
+      keyboard: [
+        [
+          { text: '打开图片', url: links.imageUrl },
+          { text: '分享页', url: links.shareUrl },
+        ],
+        [
+          { text: '最近图片', callback_data: 'pv:recent' },
+          { text: '返回控制台', callback_data: 'pv:home' },
+        ],
+      ],
+    };
+  }
+
+  private async albumsPanel(
+    ownerId: string,
+    setting: Awaited<ReturnType<SettingsService['getRuntime']>>,
+  ): Promise<TelegramPanel> {
     const albums = await this.prisma.album.findMany({
       where: { ownerId },
       orderBy: { createdAt: 'desc' },
@@ -586,6 +714,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           : '相册\n\n暂无相册。',
       keyboard: [
         [
+          {
+            text: '打开相册页',
+            url: new URL('/albums', this.publicAppUrl(setting)).toString(),
+          },
+        ],
+        [
           { text: '最近图片', callback_data: 'pv:recent' },
           { text: '返回控制台', callback_data: 'pv:home' },
         ],
@@ -600,6 +734,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       text: [
         '上传策略',
         '',
+        `站点域名：${this.safePublicAppUrl(setting)}`,
+        `图片域名：${this.safePublicImageBaseUrl(setting)}`,
         `存储：${setting.storageProvider}`,
         `单图上限：${this.formatBytes(setting.maxSizeBytes)}`,
         `允许类型：${setting.allowedTypes.join(', ') || 'image/*'}`,
@@ -621,7 +757,74 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private helpPanel(prefix?: string): TelegramPanel {
+  private uploadGuidePanel(
+    setting: Awaited<ReturnType<SettingsService['getRuntime']>>,
+  ): TelegramPanel {
+    return {
+      text: [
+        '上传说明',
+        '',
+        '直接发送图片或图片文件即可上传到 PicVault。',
+        `默认可见性：${this.visibilityText(setting.defaultVisibility)}`,
+        `单图上限：${this.formatBytes(setting.maxSizeBytes)}`,
+        `允许类型：${setting.allowedTypes.join(', ') || 'image/*'}`,
+        `默认相册：${setting.telegramAlbumId ? '已绑定' : '未绑定'}`,
+      ].join('\n'),
+      keyboard: [
+        [
+          { text: '设为公开', callback_data: 'pv:vis:PUBLIC' },
+          { text: '设为隐藏链接', callback_data: 'pv:vis:UNLISTED' },
+        ],
+        [
+          { text: '上传策略', callback_data: 'pv:policy' },
+          { text: '返回控制台', callback_data: 'pv:home' },
+        ],
+      ],
+    };
+  }
+
+  private sitePanel(
+    setting: Awaited<ReturnType<SettingsService['getRuntime']>>,
+  ): TelegramPanel {
+    let appUrl: string;
+    let imageBaseUrl: string;
+    try {
+      appUrl = this.publicAppUrl(setting);
+      imageBaseUrl = this.publicImageBaseUrl(setting);
+    } catch (error) {
+      return {
+        text: [
+          '站点入口',
+          '',
+          error instanceof Error ? error.message : String(error),
+          '请到控制中心填写站点公开域名 / Telegram 外链域名。',
+        ].join('\n'),
+        keyboard: [[{ text: '返回控制台', callback_data: 'pv:home' }]],
+      };
+    }
+    return {
+      text: [
+        '站点入口',
+        '',
+        `控制台：${appUrl}`,
+        `上传页：${new URL('/upload', appUrl).toString()}`,
+        `图片库：${new URL('/library', appUrl).toString()}`,
+        `图片域名：${imageBaseUrl}`,
+      ].join('\n'),
+      keyboard: [
+        [
+          { text: '打开控制台', url: appUrl },
+          { text: '上传页', url: new URL('/upload', appUrl).toString() },
+        ],
+        [{ text: '返回控制台', callback_data: 'pv:home' }],
+      ],
+    };
+  }
+
+  private helpPanel(
+    prefix?: string,
+    setting?: TelegramUrlSetting,
+  ): TelegramPanel {
     return {
       text: [
         prefix,
@@ -631,8 +834,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         '/panel：打开控制台',
         '/status：查看状态和容量',
         '/recent：查看最近图片',
+        '/links：复制最近公开图片链接格式',
         '/albums：查看相册',
+        '/upload：查看上传说明',
         '/policy：查看上传策略',
+        '/public /private /unlisted：切换默认可见性',
+        '/site：查看站点入口',
+        setting ? `当前站点：${this.safePublicAppUrl(setting)}` : '',
         '/help：查看帮助',
       ]
         .filter(Boolean)
@@ -699,9 +907,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         { text: '最近图片', callback_data: 'pv:recent' },
       ],
       [
+        { text: '复制格式', callback_data: 'pv:links' },
+        { text: '上传说明', callback_data: 'pv:upload' },
+      ],
+      [
         { text: '相册', callback_data: 'pv:albums' },
         { text: '上传策略', callback_data: 'pv:policy' },
       ],
+      [{ text: '站点入口', callback_data: 'pv:site' }],
     ];
   }
 
@@ -789,10 +1002,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     return data.result;
   }
 
-  private absoluteUrl(
-    value?: string | null,
-    setting?: Awaited<ReturnType<SettingsService['getRuntime']>>,
-  ) {
+  private absoluteUrl(value?: string | null, setting?: TelegramUrlSetting) {
     if (!value) return '';
     try {
       return new URL(value, this.publicAppUrl(setting)).toString();
@@ -801,10 +1011,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private shareUrl(
-    imageId: string,
-    setting?: Awaited<ReturnType<SettingsService['getRuntime']>>,
-  ) {
+  private shareUrl(imageId: string, setting?: TelegramUrlSetting) {
     return new URL(`/s/${imageId}`, this.publicAppUrl(setting)).toString();
   }
 
@@ -820,6 +1027,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   private publicLinkLine(
     image: {
+      id?: string;
       storageKey: string;
       storageProvider: StorageProvider;
       visibility: Visibility;
@@ -828,7 +1036,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     setting?: Awaited<ReturnType<SettingsService['getRuntime']>>,
   ) {
     if (this.isPublicReadyImage(image)) {
-      return `链接：${this.imagePublicUrl(image, setting)}`;
+      const links = this.publicLinksForImage(image, setting);
+      return links.imageUrl
+        ? `链接：${links.imageUrl}`
+        : `链接：${links.message}`;
     }
 
     if (image.visibility === Visibility.PRIVATE) {
@@ -838,27 +1049,123 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     return '链接：图片处理完成后可访问';
   }
 
-  private imagePublicUrl(
-    image: { storageKey: string; storageProvider: StorageProvider },
+  private publicLinksForImage(
+    image: {
+      id?: string;
+      storageKey: string;
+      storageProvider: StorageProvider;
+      visibility: Visibility;
+      status: ImageStatus;
+    },
     setting?: Awaited<ReturnType<SettingsService['getRuntime']>>,
   ) {
-    return this.absoluteUrl(
-      this.storage.getPublicUrlWithBase(image.storageKey, {
-        ...setting,
-        storageProvider: image.storageProvider,
-      }),
-      setting,
-    );
+    if (!this.isPublicReadyImage(image)) {
+      return {
+        imageUrl: '',
+        shareUrl: '',
+        message:
+          image.visibility === Visibility.PRIVATE
+            ? '私有图片不生成公开链接'
+            : '图片处理完成后可访问',
+      };
+    }
+
+    try {
+      return {
+        imageUrl: this.imagePublicUrl(image, setting),
+        shareUrl: image.id ? this.shareUrl(image.id, setting) : '',
+      };
+    } catch (error) {
+      return {
+        imageUrl: '',
+        shareUrl: '',
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
-  private publicAppUrl(
-    setting?: Awaited<ReturnType<SettingsService['getRuntime']>>,
+  private imagePublicUrl(
+    image: { storageKey: string; storageProvider: StorageProvider },
+    setting?: TelegramUrlSetting,
   ) {
-    return (
+    const base = this.publicImageBaseUrl({
+      ...setting,
+      storageProvider: image.storageProvider,
+    });
+    return `${base.replace(/\/$/, '')}/${image.storageKey}`;
+  }
+
+  private publicAppUrl(setting?: TelegramUrlSetting) {
+    const configured =
       setting?.appPublicUrl?.trim() ||
       this.config.get<string>('APP_PUBLIC_URL')?.trim() ||
-      'http://127.0.0.1:7899'
-    );
+      setting?.publicBaseUrl?.trim() ||
+      this.config.get<string>('PUBLIC_IMAGE_BASE_URL')?.trim();
+
+    return this.normalizePublicBaseUrl(configured);
+  }
+
+  private safePublicAppUrl(setting?: TelegramUrlSetting) {
+    try {
+      return this.publicAppUrl(setting);
+    } catch {
+      return '未配置公网域名';
+    }
+  }
+
+  private publicImageBaseUrl(setting?: TelegramUrlSetting) {
+    const configured =
+      setting?.publicBaseUrl?.trim() ||
+      (setting?.storageProvider === StorageProvider.LOCAL
+        ? '/api/public/files'
+        : this.config.get<string>('PUBLIC_IMAGE_BASE_URL')?.trim()) ||
+      setting?.appPublicUrl?.trim() ||
+      this.config.get<string>('APP_PUBLIC_URL')?.trim();
+
+    return this.normalizePublicBaseUrl(configured, '/api/public/files');
+  }
+
+  private safePublicImageBaseUrl(setting?: TelegramUrlSetting) {
+    try {
+      return this.publicImageBaseUrl(setting);
+    } catch {
+      return '未配置公网域名';
+    }
+  }
+
+  private normalizePublicBaseUrl(value?: string | null, fallbackPath = '') {
+    const raw = value?.trim();
+    if (!raw) {
+      throw new Error(
+        'Telegram 需要公网访问域名：请在控制中心设置站点公开域名或图片公开域名',
+      );
+    }
+
+    if (raw.startsWith('/')) {
+      const appUrl =
+        this.config.get<string>('APP_PUBLIC_URL')?.trim() ||
+        this.config.get<string>('PUBLIC_IMAGE_BASE_URL')?.trim();
+      if (!appUrl || appUrl.startsWith('/')) {
+        throw new Error(
+          'Telegram 需要公网访问域名：当前图片域名是相对路径，请在控制中心设置反代后的公开域名',
+        );
+      }
+
+      return `${this.normalizePublicBaseUrl(appUrl)}${raw}`;
+    }
+
+    const parsed = new URL(raw);
+    if (this.isPrivateHost(parsed.hostname)) {
+      throw new Error(
+        `Telegram 不能使用内网地址 ${parsed.host}，请配置反代后的公网域名`,
+      );
+    }
+
+    if (fallbackPath && !parsed.pathname.replace(/\/$/, '')) {
+      parsed.pathname = fallbackPath;
+    }
+
+    return parsed.toString().replace(/\/$/, '');
   }
 
   private formatBytes(bytes = 0) {
@@ -893,6 +1200,31 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         [ImageStatus.FAILED]: '失败',
         [ImageStatus.DELETED]: '回收站',
       }[value] ?? value
+    );
+  }
+
+  private isPrivateHost(hostname: string) {
+    const normalized = hostname.toLowerCase();
+    if (
+      normalized === 'localhost' ||
+      normalized === '127.0.0.1' ||
+      normalized === '::1' ||
+      normalized.endsWith('.local')
+    ) {
+      return true;
+    }
+
+    const parts = normalized.split('.').map((part) => Number(part));
+    if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
+      return false;
+    }
+
+    const [first, second] = parts;
+    return (
+      first === 10 ||
+      first === 127 ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168)
     );
   }
 }

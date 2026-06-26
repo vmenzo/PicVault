@@ -704,6 +704,13 @@ button {
   margin-bottom: 14px;
 }
 
+.form-help {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .preset-row {
   display: flex;
   flex-wrap: wrap;
