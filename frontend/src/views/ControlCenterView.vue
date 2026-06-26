@@ -113,6 +113,14 @@ function applyStoragePreset(preset: (typeof storagePresets)[number]) {
   storage.s3ForcePathStyle = preset.forcePathStyle;
 }
 
+function cleanS3Credential(value: string) {
+  return value
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\s+/g, '')
+    .trim();
+}
+
 async function load() {
   loading.value = true;
   try {
@@ -175,6 +183,9 @@ async function load() {
 async function save() {
   saving.value = true;
   try {
+    storage.s3AccessKey = cleanS3Credential(storage.s3AccessKey);
+    storage.s3SecretKey = cleanS3Credential(storage.s3SecretKey);
+
     await updateAppSettingApi({
       publicBaseUrl: storage.publicBaseUrl || null,
       appPublicUrl: site.appPublicUrl || null,

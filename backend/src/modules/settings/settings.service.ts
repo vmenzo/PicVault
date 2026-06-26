@@ -1,4 +1,9 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  forwardRef,
+  Inject,
+  Injectable,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma, StorageProvider, UserRole, Visibility } from '@prisma/client';
 import * as path from 'node:path';
@@ -14,6 +19,7 @@ const DEFAULT_ALLOWED_TYPES = [
   'image/gif',
 ];
 const SECRET_MASK = '********';
+const S3_CREDENTIAL_PATTERN = /^[\x21-\x7e]+$/;
 
 @Injectable()
 export class SettingsService {
@@ -188,10 +194,10 @@ export class SettingsService {
     if (dto.s3Region !== undefined) data.s3Region = this.clean(dto.s3Region);
     if (dto.s3Bucket !== undefined) data.s3Bucket = this.clean(dto.s3Bucket);
     if (dto.s3AccessKey !== undefined && dto.s3AccessKey !== SECRET_MASK) {
-      data.s3AccessKey = this.clean(dto.s3AccessKey);
+      data.s3AccessKey = this.cleanS3Credential(dto.s3AccessKey, 'Access Key');
     }
     if (dto.s3SecretKey !== undefined && dto.s3SecretKey !== SECRET_MASK) {
-      data.s3SecretKey = this.clean(dto.s3SecretKey);
+      data.s3SecretKey = this.cleanS3Credential(dto.s3SecretKey, 'Secret Key');
     }
     if (dto.s3ForcePathStyle !== undefined) {
       data.s3ForcePathStyle = dto.s3ForcePathStyle;
@@ -308,6 +314,26 @@ export class SettingsService {
 
   private clean(value: string | null | undefined) {
     return value?.trim() || null;
+  }
+
+  private cleanS3Credential(
+    value: string | null | undefined,
+    label: 'Access Key' | 'Secret Key',
+  ) {
+    const cleaned =
+      value
+        ?.normalize('NFKC')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
+        .replace(/\s+/g, '')
+        .trim() || null;
+
+    if (cleaned && !S3_CREDENTIAL_PATTERN.test(cleaned)) {
+      throw new BadRequestException(
+        `第三方对象存储 ${label} 包含非法字符，请清空后重新复制粘贴`,
+      );
+    }
+
+    return cleaned;
   }
 
   private async findRuntimeSetting(ownerId: string) {

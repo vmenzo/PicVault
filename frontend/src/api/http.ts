@@ -41,6 +41,10 @@ export function normalizeApiError(message: string) {
     return '网络请求失败，请检查服务是否可访问，或第三方对象存储 CORS 是否允许当前域名';
   }
 
+  if (message.includes('Invalid character in header content')) {
+    return '第三方对象存储 Access Key 或 Secret Key 包含隐藏字符，请清空后重新复制粘贴';
+  }
+
   if (message.includes('timeout')) {
     return '请求超时，请检查网络或对象存储服务状态';
   }
