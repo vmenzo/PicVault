@@ -50,9 +50,15 @@ type QueueItem = {
   storageProvider: StorageProvider;
   visibility: Visibility;
 };
+type UploadResult = {
+  id: string;
+  name: string;
+  url: string;
+};
 
 const albums = ref<Album[]>([]);
 const queue = ref<QueueItem[]>([]);
+const uploadResults = ref<UploadResult[]>([]);
 const remoteUrls = ref('');
 const remoteFilename = ref('');
 const setting = ref<UploadPolicy | null>(null);
@@ -73,9 +79,7 @@ const activeCount = computed(
       ['waiting', 'preparing', 'uploading', 'processing'].includes(item.status),
     ).length,
 );
-const successItems = computed(() =>
-  queue.value.filter((item) => item.status === 'success' && item.url),
-);
+const successItems = computed(() => uploadResults.value);
 const failedItems = computed(() =>
   queue.value.filter((item) => item.status === 'failed'),
 );
@@ -94,13 +98,16 @@ const storageTargetOptions = [
 const storageTargetLabel = computed(() =>
   form.storageProvider === 'LOCAL' ? '本机存储' : '第三方对象存储',
 );
+const autoRemoveTimers = new Map<string, number>();
+const progressTimers = new Map<string, number>();
+const maxConcurrentUploads = 3;
 
 function makeId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function formatResult(
-  item: QueueItem,
+  item: { name: string; url?: string },
   format: 'url' | 'markdown' | 'html' | 'bbcode',
 ) {
   const url = toAbsoluteUrl(item.url);
@@ -133,10 +140,79 @@ function validateFile(file: File) {
   return true;
 }
 
+function setProgress(item: QueueItem, progress: number) {
+  item.progress = Math.max(item.progress, Math.min(Math.round(progress), 99));
+}
+
+function stopProgress(id: string) {
+  const timer = progressTimers.get(id);
+  if (!timer) return;
+  window.clearInterval(timer);
+  progressTimers.delete(id);
+}
+
+function startProgress(item: QueueItem, target: number, intervalMs = 500) {
+  stopProgress(item.id);
+  const timer = window.setInterval(() => {
+    if (['success', 'failed'].includes(item.status)) {
+      stopProgress(item.id);
+      return;
+    }
+
+    if (item.progress >= target) {
+      stopProgress(item.id);
+      return;
+    }
+
+    const gap = target - item.progress;
+    setProgress(item, item.progress + Math.max(1, Math.ceil(gap * 0.16)));
+  }, intervalMs);
+  progressTimers.set(item.id, timer);
+}
+
+function rememberResult(item: QueueItem) {
+  if (!item.url) return;
+  const result = { id: item.id, name: item.name, url: item.url };
+  const index = uploadResults.value.findIndex((entry) => entry.id === item.id);
+  if (index >= 0) {
+    uploadResults.value.splice(index, 1, result);
+  } else {
+    uploadResults.value.unshift(result);
+  }
+}
+
+function scheduleAutoRemove(item: QueueItem) {
+  const existing = autoRemoveTimers.get(item.id);
+  if (existing) {
+    window.clearTimeout(existing);
+  }
+
+  const timer = window.setTimeout(() => {
+    removeItem(item.id);
+  }, 3500);
+  autoRemoveTimers.set(item.id, timer);
+}
+
+async function runQueueItems(items: QueueItem[]) {
+  const workerCount = Math.min(maxConcurrentUploads, items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async (_, workerIndex) => {
+      for (
+        let index = workerIndex;
+        index < items.length;
+        index += workerCount
+      ) {
+        await runQueueItem(items[index]);
+      }
+    }),
+  );
+}
+
 async function runLocalUpload(item: QueueItem) {
   if (!item.file) return;
   item.status = 'preparing';
-  item.progress = 5;
+  item.progress = 3;
+  startProgress(item, 18);
 
   const signed = await signUploadApi({
     filename: item.file.name,
@@ -145,35 +221,43 @@ async function runLocalUpload(item: QueueItem) {
     albumId: form.albumId || undefined,
     visibility: item.visibility,
     storageProvider: item.storageProvider,
-  });
+  }).finally(() => stopProgress(item.id));
 
   item.status = 'uploading';
-  item.progress = 10;
+  setProgress(item, 22);
+  startProgress(item, 82, 700);
   await putObject(signed.uploadUrl, item.file, signed.headers, (percent) => {
-    item.progress = Math.max(10, Math.min(85, Math.round(percent * 0.75 + 10)));
-  });
+    setProgress(item, percent * 0.66 + 22);
+  }).finally(() => stopProgress(item.id));
+
   item.status = 'processing';
-  item.progress = 90;
-  const image = await completeUploadApi(signed.imageId);
+  setProgress(item, 90);
+  startProgress(item, 96, 700);
+  const image = await completeUploadApi(signed.imageId).finally(() =>
+    stopProgress(item.id),
+  );
   item.status = 'success';
   item.progress = 100;
   item.url =
     image.status === 'READY' && image.visibility !== 'PRIVATE'
       ? toAbsoluteUrl(image.publicUrl)
       : '';
+  rememberResult(item);
+  scheduleAutoRemove(item);
 }
 
 async function runRemoteImport(item: QueueItem) {
   if (!item.remoteUrl) return;
-  item.status = 'preparing';
+  item.status = 'processing';
   item.progress = 5;
+  startProgress(item, 92, 700);
   const image = await importUrlApi({
     url: item.remoteUrl,
     filename: remoteFilename.value.trim() || undefined,
     albumId: form.albumId || undefined,
     visibility: item.visibility,
     storageProvider: item.storageProvider,
-  });
+  }).finally(() => stopProgress(item.id));
   item.status = 'success';
   item.progress = 100;
   item.name = image.originalName;
@@ -182,6 +266,8 @@ async function runRemoteImport(item: QueueItem) {
     image.status === 'READY' && image.visibility !== 'PRIVATE'
       ? toAbsoluteUrl(image.publicUrl)
       : '';
+  rememberResult(item);
+  scheduleAutoRemove(item);
 }
 
 async function runQueueItem(item: QueueItem) {
@@ -193,6 +279,7 @@ async function runQueueItem(item: QueueItem) {
       await runLocalUpload(item);
     }
   } catch (error) {
+    stopProgress(item.id);
     item.status = 'failed';
     item.error = error instanceof Error ? error.message : '上传失败';
   }
@@ -215,9 +302,7 @@ async function enqueueFiles(
   }));
 
   queue.value.unshift(...nextItems);
-  for (const item of nextItems) {
-    await runQueueItem(item);
-  }
+  await runQueueItems(nextItems);
 }
 
 async function uploadFile(options: UploadRequestOptions) {
@@ -275,24 +360,42 @@ async function importRemoteUrls() {
   }));
 
   queue.value.unshift(...items);
-  for (const item of items) {
-    await runQueueItem(item);
-  }
+  await runQueueItems(items);
   remoteUrls.value = '';
   remoteFilename.value = '';
 }
 
 async function retry(item: QueueItem) {
+  stopProgress(item.id);
+  uploadResults.value = uploadResults.value.filter(
+    (result) => result.id !== item.id,
+  );
   item.status = 'waiting';
   item.progress = 0;
   await runQueueItem(item);
 }
 
 function removeItem(id: string) {
+  stopProgress(id);
+  const timer = autoRemoveTimers.get(id);
+  if (timer) {
+    window.clearTimeout(timer);
+    autoRemoveTimers.delete(id);
+  }
   queue.value = queue.value.filter((item) => item.id !== id);
 }
 
 function clearFinished() {
+  for (const item of queue.value) {
+    if (['success', 'failed'].includes(item.status)) {
+      stopProgress(item.id);
+      const timer = autoRemoveTimers.get(item.id);
+      if (timer) {
+        window.clearTimeout(timer);
+        autoRemoveTimers.delete(item.id);
+      }
+    }
+  }
   queue.value = queue.value.filter(
     (item) => !['success', 'failed'].includes(item.status),
   );
@@ -349,6 +452,14 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('paste', handlePaste);
+  for (const timer of autoRemoveTimers.values()) {
+    window.clearTimeout(timer);
+  }
+  for (const timer of progressTimers.values()) {
+    window.clearInterval(timer);
+  }
+  autoRemoveTimers.clear();
+  progressTimers.clear();
 });
 </script>
 
