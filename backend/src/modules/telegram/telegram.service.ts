@@ -373,9 +373,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
               ]
             : []),
           [
-            { text: '复制格式', callback_data: 'pv:links' },
-            { text: '图片库', callback_data: 'pv:library' },
-            { text: '控制台', callback_data: 'pv:home' },
+            { text: '链接格式', callback_data: 'pv:links' },
+            { text: '返回', callback_data: 'pv:home' },
           ],
         ],
         previews: [this.previewForImage(ownerId, displayImage, setting)].filter(
@@ -567,6 +566,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         ownerId,
         action.slice('album:'.length),
       );
+    } else if (action.startsWith('storage:')) {
+      panel = await this.updateStorageProvider(
+        ownerId,
+        action.slice('storage:'.length),
+      );
     } else if (action === 'keys') {
       panel = await this.apiKeysPanel(ownerId, setting);
     } else if (action === 'trash') {
@@ -659,15 +663,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         )}`,
       ].join('\n'),
       keyboard: [
-        [
-          { text: '刷新', callback_data: 'pv:status' },
-          { text: '图片库', callback_data: 'pv:library' },
-        ],
-        [
-          { text: '集成状态', callback_data: 'pv:integrations' },
-          { text: '回收站', callback_data: 'pv:trash' },
-        ],
-        [{ text: '返回控制台', callback_data: 'pv:home' }],
+        [{ text: '刷新', callback_data: 'pv:status' }],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -717,10 +714,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           : '最近图片\n\n暂无图片。',
       keyboard: [
         ...this.imageViewRows(images),
-        [
-          { text: '图片库', callback_data: 'pv:library' },
-          { text: '返回控制台', callback_data: 'pv:home' },
-        ],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -750,14 +744,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     if (!image) {
       return {
-        text: '复制格式\n\n暂无可公开访问的图片。把默认可见性设为公开或隐藏链接后，再发送图片上传。',
-        keyboard: [
-          [
-            { text: '上传说明', callback_data: 'pv:upload' },
-            { text: '上传位置', callback_data: 'pv:location' },
-          ],
-          [{ text: '返回控制台', callback_data: 'pv:home' }],
-        ],
+        text: '链接格式\n\n暂无可公开访问的图片。把默认可见性设为公开或隐藏链接后，再发送图片上传。',
+        keyboard: [[{ text: '返回', callback_data: 'pv:home' }]],
       };
     }
 
@@ -766,23 +754,18 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     if (!links.imageUrl || !links.shareUrl) {
       return {
         text: [
-          '复制格式',
+          '链接格式',
           '',
           links.message ||
             '当前没有可用公网域名，请先在控制中心设置站点公开域名。',
         ].join('\n'),
-        keyboard: [
-          [
-            { text: '站点入口', callback_data: 'pv:site' },
-            { text: '返回控制台', callback_data: 'pv:home' },
-          ],
-        ],
+        keyboard: [[{ text: '返回', callback_data: 'pv:home' }]],
       };
     }
 
     return {
       text: [
-        '复制格式',
+        '链接格式',
         '',
         title,
         '',
@@ -798,10 +781,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           { text: '打开图片', url: links.imageUrl },
           { text: '分享页', url: links.shareUrl },
         ],
-        [
-          { text: '图片库', callback_data: 'pv:library' },
-          { text: '返回控制台', callback_data: 'pv:home' },
-        ],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -840,7 +820,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     if (!image) {
       return {
         text: '图片详情\n\n图片不存在或无权访问。',
-        keyboard: [[{ text: '图片库', callback_data: 'pv:library' }]],
+        keyboard: [[{ text: '返回', callback_data: 'pv:home' }]],
       };
     }
 
@@ -878,11 +858,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
               ],
             ]
           : []),
-        [
-          { text: '复制格式', callback_data: 'pv:links' },
-          { text: '图片库', callback_data: 'pv:library' },
-        ],
-        [{ text: '返回控制台', callback_data: 'pv:home' }],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
       previews: [this.previewForImage(ownerId, image, setting)].filter(
         (preview): preview is TelegramPreview => Boolean(preview),
@@ -965,11 +941,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             url: new URL('/library', this.publicAppUrl(setting)).toString(),
           },
         ],
-        [
-          { text: '搜索图片', callback_data: 'pv:search' },
-          { text: '复制格式', callback_data: 'pv:links' },
-        ],
-        [{ text: '返回控制台', callback_data: 'pv:home' }],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -990,13 +962,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         ].join('\n'),
         keyboard: [
           [
-            { text: '图片库', callback_data: 'pv:library' },
             {
               text: '打开图片库',
               url: new URL('/library', this.publicAppUrl(setting)).toString(),
             },
           ],
-          [{ text: '返回控制台', callback_data: 'pv:home' }],
+          [{ text: '返回', callback_data: 'pv:home' }],
         ],
       };
     }
@@ -1060,7 +1031,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             ).toString(),
           },
         ],
-        [{ text: '返回控制台', callback_data: 'pv:home' }],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -1079,13 +1050,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           '发送图片 URL 可直接抓取上传。',
           '格式：/grab https://example.com/image.jpg',
         ].join('\n'),
-        keyboard: [
-          [
-            { text: '上传位置', callback_data: 'pv:location' },
-            { text: '图片库', callback_data: 'pv:library' },
-          ],
-          [{ text: '返回控制台', callback_data: 'pv:home' }],
-        ],
+        keyboard: [[{ text: '返回', callback_data: 'pv:home' }]],
       };
     }
 
@@ -1094,7 +1059,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     } catch {
       return {
         text: '链接抓图\n\nURL 格式不正确，请发送 http 或 https 图片地址。',
-        keyboard: [[{ text: '返回控制台', callback_data: 'pv:home' }]],
+        keyboard: [[{ text: '返回', callback_data: 'pv:home' }]],
       };
     }
 
@@ -1132,10 +1097,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
               ]
             : []),
           [
-            { text: '图片库', callback_data: 'pv:library' },
             { text: '继续抓图', callback_data: 'pv:grab' },
+            { text: '返回', callback_data: 'pv:home' },
           ],
-          [{ text: '返回控制台', callback_data: 'pv:home' }],
         ],
         previews: [this.previewForImage(ownerId, displayImage, setting)].filter(
           (preview): preview is TelegramPreview => Boolean(preview),
@@ -1148,12 +1112,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           '',
           error instanceof Error ? error.message : String(error),
         ].join('\n'),
-        keyboard: [
-          [
-            { text: '上传位置', callback_data: 'pv:location' },
-            { text: '返回控制台', callback_data: 'pv:home' },
-          ],
-        ],
+        keyboard: [[{ text: '返回', callback_data: 'pv:home' }]],
       };
     }
   }
@@ -1188,15 +1147,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         `图片域名：${this.safePublicImageBaseUrl(setting)}`,
       ].join('\n'),
       keyboard: [
-        [
-          { text: '刷新', callback_data: 'pv:integrations' },
-          { text: 'API 密钥', callback_data: 'pv:keys' },
-        ],
-        [
-          { text: '上传位置', callback_data: 'pv:location' },
-          { text: '站点入口', callback_data: 'pv:site' },
-        ],
-        [{ text: '返回控制台', callback_data: 'pv:home' }],
+        [{ text: '刷新', callback_data: 'pv:integrations' }],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -1223,6 +1175,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       text: [
         '上传位置',
         '',
+        `存储位置：${this.storageProviderText(setting)}`,
         `默认相册：${current?.name ?? '未绑定'}`,
         `默认可见性：${this.visibilityText(setting.defaultVisibility)}`,
         `单图上限：${this.formatBytes(setting.maxSizeBytes)}`,
@@ -1232,6 +1185,20 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           : '暂无相册，请先在网页端创建相册。',
       ].join('\n'),
       keyboard: [
+        [
+          {
+            text: `${
+              setting.storageProvider === StorageProvider.LOCAL ? '✓ ' : ''
+            }本地存储`,
+            callback_data: 'pv:storage:LOCAL',
+          },
+          {
+            text: `${
+              setting.storageProvider === StorageProvider.S3 ? '✓ ' : ''
+            }S3 存储桶`,
+            callback_data: 'pv:storage:S3',
+          },
+        ],
         ...albums.slice(0, 6).map((album) => [
           {
             text: `设为上传位置：${this.truncateButtonText(album.name)}`,
@@ -1240,13 +1207,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         ]),
         [
           { text: '不绑定相册', callback_data: 'pv:album:none' },
-          { text: '相册列表', callback_data: 'pv:albums' },
-        ],
-        [
           { text: '设为公开', callback_data: 'pv:vis:PUBLIC' },
-          { text: '隐藏链接', callback_data: 'pv:vis:UNLISTED' },
         ],
-        [{ text: '返回控制台', callback_data: 'pv:home' }],
+        [{ text: '隐藏链接', callback_data: 'pv:vis:UNLISTED' }],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -1299,10 +1263,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             url: new URL('/settings', this.publicAppUrl(setting)).toString(),
           },
         ],
-        [
-          { text: '集成状态', callback_data: 'pv:integrations' },
-          { text: '返回控制台', callback_data: 'pv:home' },
-        ],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -1358,7 +1319,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             url: new URL('/trash', this.publicAppUrl(setting)).toString(),
           },
         ],
-        [{ text: '返回控制台', callback_data: 'pv:home' }],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -1408,17 +1369,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             callback_data: `pv:album:${album.id}`,
           },
         ]),
-        [
-          { text: '不绑定相册', callback_data: 'pv:album:none' },
-          { text: '上传位置', callback_data: 'pv:location' },
-        ],
+        [{ text: '不绑定相册', callback_data: 'pv:album:none' }],
         [
           {
             text: '打开相册页',
             url: new URL('/albums', this.publicAppUrl(setting)).toString(),
           },
         ],
-        [{ text: '返回控制台', callback_data: 'pv:home' }],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -1445,10 +1403,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           { text: '设为私有', callback_data: 'pv:vis:PRIVATE' },
           { text: '设为公开', callback_data: 'pv:vis:PUBLIC' },
         ],
-        [
-          { text: '设为隐藏链接', callback_data: 'pv:vis:UNLISTED' },
-          { text: '返回控制台', callback_data: 'pv:home' },
-        ],
+        [{ text: '设为隐藏链接', callback_data: 'pv:vis:UNLISTED' }],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -1471,10 +1427,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           { text: '设为公开', callback_data: 'pv:vis:PUBLIC' },
           { text: '设为隐藏链接', callback_data: 'pv:vis:UNLISTED' },
         ],
-        [
-          { text: '上传位置', callback_data: 'pv:location' },
-          { text: '返回控制台', callback_data: 'pv:home' },
-        ],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -1495,7 +1448,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           error instanceof Error ? error.message : String(error),
           '请到控制中心填写站点公开域名 / Telegram 外链域名。',
         ].join('\n'),
-        keyboard: [[{ text: '返回控制台', callback_data: 'pv:home' }]],
+        keyboard: [[{ text: '返回', callback_data: 'pv:home' }]],
       };
     }
     return {
@@ -1512,7 +1465,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           { text: '打开控制台', url: appUrl },
           { text: '上传页', url: new URL('/upload', appUrl).toString() },
         ],
-        [{ text: '返回控制台', callback_data: 'pv:home' }],
+        [{ text: '返回', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -1598,6 +1551,26 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  private async updateStorageProvider(
+    ownerId: string,
+    provider: string,
+  ): Promise<TelegramPanel> {
+    if (!Object.values(StorageProvider).includes(provider as StorageProvider)) {
+      return {
+        text: '上传位置\n\n存储位置无效。',
+        keyboard: [[{ text: '返回', callback_data: 'pv:location' }]],
+      };
+    }
+
+    await this.settings.update(ownerId, {
+      storageProvider: provider as StorageProvider,
+    });
+    return this.uploadLocationPanel(
+      ownerId,
+      await this.settings.getRuntime(ownerId),
+    );
+  }
+
   private async imageStats(ownerId: string) {
     const [total, ready, pending, failed, deleted, user] =
       await this.prisma.$transaction([
@@ -1673,7 +1646,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       ],
       [
         { text: '集成状态', callback_data: 'pv:integrations' },
-        { text: '复制格式', callback_data: 'pv:links' },
+        { text: '链接格式', callback_data: 'pv:links' },
       ],
       [
         { text: '刷新', callback_data: 'pv:refresh' },
@@ -2218,6 +2191,14 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         [Visibility.UNLISTED]: '隐藏链接',
       }[value] ?? value
     );
+  }
+
+  private storageProviderText(setting: TelegramRuntimeSetting) {
+    if (setting.storageProvider === StorageProvider.S3) {
+      return `S3 存储桶${setting.s3Bucket ? `：${setting.s3Bucket}` : '（未配置桶名）'}`;
+    }
+
+    return '本地存储';
   }
 
   private statusText(value: ImageStatus) {
