@@ -47,12 +47,16 @@ type InlineKeyboardButton = {
   text: string;
   callback_data?: string;
   url?: string;
+  copy_text?: {
+    text: string;
+  };
 };
 
 type TelegramPanel = {
   text: string;
   keyboard?: InlineKeyboardButton[][];
   previews?: TelegramPreview[];
+  parseMode?: 'HTML';
 };
 
 type TelegramPreview = {
@@ -346,17 +350,18 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         text: [
           'PicVault 上传完成',
           '',
-          `文件：${displayImage.originalName}`,
+          `文件：${this.escapeHtml(displayImage.originalName)}`,
           `大小：${this.formatBytes(Number(displayImage.sizeBytes))}`,
           `状态：${this.statusText(displayImage.status)}`,
           `可见性：${this.visibilityText(displayImage.visibility)}`,
-          this.publicLinkLine(displayImage, setting),
-          links.shareUrl ? `分享页：${links.shareUrl}` : '',
-          markdown ? `Markdown：${markdown}` : '',
-          nodeseek ? `NodeSeek：${nodeseek}` : '',
+          this.publicLinkCopyLine(displayImage, setting),
+          links.shareUrl ? `分享页： ${this.copyCode(links.shareUrl)}` : '',
+          markdown ? `Markdown： ${this.copyCode(markdown)}` : '',
+          nodeseek ? this.nodeSeekCopyLine(links.imageUrl) : '',
         ]
           .filter(Boolean)
           .join('\n'),
+        parseMode: 'HTML',
         keyboard: [
           ...(links.imageUrl && links.shareUrl
             ? [
@@ -557,6 +562,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       panel = await this.recentPanel(ownerId, setting);
     } else if (action === 'links') {
       panel = await this.linksPanel(ownerId, setting);
+    } else if (action.startsWith('link:')) {
+      panel = await this.linkFormatPanel(
+        ownerId,
+        setting,
+        action.slice('link:'.length),
+      );
     } else if (action === 'albums') {
       panel = await this.albumsPanel(ownerId, setting);
     } else if (action === 'location') {
@@ -708,10 +719,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
                   `   ${this.statusText(image.status)} · ${this.visibilityText(
                     image.visibility,
                   )} · ${this.formatBytes(Number(image.sizeBytes))}\n` +
-                  `   ${this.publicLinkLine(image, setting)}`,
+                  `   ${this.publicLinkCopyLine(image, setting)}`,
               ),
             ].join('\n')
           : '最近图片\n\n暂无图片。',
+      parseMode: 'HTML',
       keyboard: [
         ...this.imageViewRows(images),
         [{ text: '返回', callback_data: 'pv:home' }],
@@ -723,7 +735,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     ownerId: string,
     setting: Awaited<ReturnType<SettingsService['getRuntime']>>,
   ): Promise<TelegramPanel> {
-    const image = await this.prisma.image.findFirst({
+    const images = await this.prisma.image.findMany({
       where: {
         ownerId,
         status: ImageStatus.READY,
@@ -731,21 +743,73 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         uploadedAt: { not: null },
       },
       orderBy: { createdAt: 'desc' },
+      take: 8,
       select: {
         id: true,
         title: true,
         originalName: true,
+        mimeType: true,
         storageKey: true,
         storageProvider: true,
+        thumbKey: true,
         visibility: true,
         status: true,
       },
     });
 
-    if (!image) {
+    if (!images.length) {
       return {
         text: '链接格式\n\n暂无可公开访问的图片。把默认可见性设为公开或隐藏链接后，再发送图片上传。',
         keyboard: [[{ text: '返回', callback_data: 'pv:home' }]],
+      };
+    }
+
+    return this.linkFormatPanel(ownerId, setting, images[0].id, images);
+  }
+
+  private async linkFormatPanel(
+    ownerId: string,
+    setting: TelegramRuntimeSetting,
+    imageId: string,
+    prefetchedImages?: Array<{
+      id: string;
+      title: string;
+      originalName: string;
+      mimeType: string;
+      storageKey: string;
+      storageProvider: StorageProvider;
+      thumbKey: string | null;
+      visibility: Visibility;
+      status: ImageStatus;
+    }>,
+  ): Promise<TelegramPanel> {
+    const image =
+      prefetchedImages?.find((item) => item.id === imageId) ??
+      (await this.prisma.image.findFirst({
+        where: {
+          id: imageId,
+          ownerId,
+          status: ImageStatus.READY,
+          visibility: { not: Visibility.PRIVATE },
+          uploadedAt: { not: null },
+        },
+        select: {
+          id: true,
+          title: true,
+          originalName: true,
+          mimeType: true,
+          storageKey: true,
+          storageProvider: true,
+          thumbKey: true,
+          visibility: true,
+          status: true,
+        },
+      }));
+
+    if (!image) {
+      return {
+        text: '链接格式\n\n这张图片暂时不能生成公开链接。',
+        keyboard: [[{ text: '返回', callback_data: 'pv:links' }]],
       };
     }
 
@@ -759,30 +823,65 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           links.message ||
             '当前没有可用公网域名，请先在控制中心设置站点公开域名。',
         ].join('\n'),
-        keyboard: [[{ text: '返回', callback_data: 'pv:home' }]],
+        keyboard: [[{ text: '返回', callback_data: 'pv:links' }]],
       };
     }
+
+    const markdown = `![${title}](${links.imageUrl})`;
+    const nodeSeek = `![](${links.imageUrl})`;
+    const html = `<img src="${links.imageUrl}" alt="${title}">`;
+    const bbcode = `[img]${links.imageUrl}[/img]`;
+    const recentRows =
+      prefetchedImages
+        ?.filter((item) => item.id !== image.id)
+        .slice(0, 5)
+        .map((item, index) => [
+          {
+            text: `换第 ${index + 2} 张：${this.truncateButtonText(
+              item.title || item.originalName,
+            )}`,
+            callback_data: `pv:link:${item.id}`,
+          },
+        ]) ?? [];
 
     return {
       text: [
         '链接格式',
         '',
-        title,
+        this.escapeHtml(title),
         '',
-        `直链：${links.imageUrl}`,
-        `Markdown：![${title}](${links.imageUrl})`,
-        `NodeSeek：![](${links.imageUrl})`,
-        `HTML：<img src="${links.imageUrl}" alt="${title}">`,
-        `BBCode：[img]${links.imageUrl}[/img]`,
-        `分享页：${links.shareUrl}`,
+        `直链： ${this.copyCode(links.imageUrl)}`,
+        '',
+        `Markdown： ${this.copyCode(markdown)}`,
+        '',
+        `NodeSeek： ${this.copyCode(nodeSeek)}`,
+        '',
+        `HTML： ${this.copyCode(html)}`,
+        '',
+        `BBCode： ${this.copyCode(bbcode)}`,
+        '',
+        `分享页： ${this.copyCode(links.shareUrl)}`,
       ].join('\n'),
+      parseMode: 'HTML',
       keyboard: [
         [
           { text: '打开图片', url: links.imageUrl },
           { text: '分享页', url: links.shareUrl },
         ],
+        [
+          { text: '复制直链', copy_text: { text: links.imageUrl } },
+          { text: '复制 MD', copy_text: { text: markdown } },
+        ],
+        [
+          { text: '复制 HTML', copy_text: { text: html } },
+          { text: '复制 BBCode', copy_text: { text: bbcode } },
+        ],
+        ...recentRows,
         [{ text: '返回', callback_data: 'pv:home' }],
       ],
+      previews: [this.previewForImage(ownerId, image, setting)].filter(
+        (preview): preview is TelegramPreview => Boolean(preview),
+      ),
     };
   }
 
@@ -833,22 +932,23 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       text: [
         '图片详情',
         '',
-        title,
-        `文件：${image.originalName}`,
+        this.escapeHtml(title),
+        `文件：${this.escapeHtml(image.originalName)}`,
         `状态：${this.statusText(image.status)} · ${this.visibilityText(
           image.visibility,
         )}`,
         `尺寸：${dimensions} · 大小：${this.formatBytes(
           Number(image.sizeBytes),
         )}`,
-        `相册：${image.album?.name ?? '未归档'}`,
+        `相册：${this.escapeHtml(image.album?.name ?? '未归档')}`,
         `上传：${this.formatDateTime(image.createdAt)}`,
-        this.publicLinkLine(image, setting),
-        links.shareUrl ? `分享页：${links.shareUrl}` : '',
-        links.imageUrl ? `NodeSeek：![](${links.imageUrl})` : '',
+        this.publicLinkCopyLine(image, setting),
+        links.shareUrl ? `分享页： ${this.copyCode(links.shareUrl)}` : '',
+        this.nodeSeekCopyLine(links.imageUrl),
       ]
         .filter(Boolean)
         .join('\n'),
+      parseMode: 'HTML',
       keyboard: [
         ...(links.imageUrl && links.shareUrl
           ? [
@@ -914,23 +1014,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     return {
       text:
         images.length > 0
-          ? [
-              '图片库',
-              '',
-              ...images.map((image, index) => {
-                const dimensions =
-                  image.width && image.height
-                    ? ` · ${image.width}x${image.height}`
-                    : '';
-                return (
-                  `${index + 1}. ${image.title || image.originalName}\n` +
-                  `   ${this.statusText(image.status)} · ${this.visibilityText(
-                    image.visibility,
-                  )} · ${this.formatBytes(Number(image.sizeBytes))}${dimensions}\n` +
-                  `   相册：${image.album?.name ?? '未归档'}`
-                );
-              }),
-            ].join('\n')
+          ? '图片库\n\n选择下面的图片查看详情。'
           : '图片库\n\n暂无图片。',
       keyboard: [
         ...this.imageViewRows(images),
@@ -1077,16 +1161,17 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         text: [
           '链接抓图完成',
           '',
-          `文件：${displayImage.originalName}`,
+          `文件：${this.escapeHtml(displayImage.originalName)}`,
           `大小：${this.formatBytes(Number(displayImage.sizeBytes))}`,
           `状态：${this.statusText(displayImage.status)}`,
           `可见性：${this.visibilityText(displayImage.visibility)}`,
-          this.publicLinkLine(displayImage, setting),
-          links.shareUrl ? `分享页：${links.shareUrl}` : '',
-          links.imageUrl ? `NodeSeek：![](${links.imageUrl})` : '',
+          this.publicLinkCopyLine(displayImage, setting),
+          links.shareUrl ? `分享页： ${this.copyCode(links.shareUrl)}` : '',
+          this.nodeSeekCopyLine(links.imageUrl),
         ]
           .filter(Boolean)
           .join('\n'),
+        parseMode: 'HTML',
         keyboard: [
           ...(links.imageUrl && links.shareUrl
             ? [
@@ -1668,6 +1753,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       chat_id: chatId,
       text: panel.text,
       disable_web_page_preview: true,
+      parse_mode: panel.parseMode,
       reply_markup: panel.keyboard
         ? {
             inline_keyboard: panel.keyboard,
@@ -1689,6 +1775,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         message_id: messageId,
         text: panel.text,
         disable_web_page_preview: true,
+        parse_mode: panel.parseMode,
         reply_markup: panel.keyboard
           ? {
               inline_keyboard: panel.keyboard,
@@ -1884,6 +1971,46 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
 
     return '链接：图片处理完成后可访问';
+  }
+
+  private publicLinkCopyLine(
+    image: {
+      id?: string;
+      storageKey: string;
+      storageProvider: StorageProvider;
+      visibility: Visibility;
+      status: ImageStatus;
+    },
+    setting?: Awaited<ReturnType<SettingsService['getRuntime']>>,
+  ) {
+    if (this.isPublicReadyImage(image)) {
+      const links = this.publicLinksForImage(image, setting);
+      return links.imageUrl
+        ? `链接： ${this.copyCode(links.imageUrl)}`
+        : `链接：${this.escapeHtml(links.message ?? '暂无可用链接')}`;
+    }
+
+    if (image.visibility === Visibility.PRIVATE) {
+      return '链接：私有图片不生成公开链接';
+    }
+
+    return '链接：图片处理完成后可访问';
+  }
+
+  private nodeSeekCopyLine(imageUrl?: string) {
+    return imageUrl ? `NodeSeek： ${this.copyCode(`![](${imageUrl})`)}` : '';
+  }
+
+  private copyCode(value: string) {
+    return `<code>${this.escapeHtml(value)}</code>`;
+  }
+
+  private escapeHtml(value: string) {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   private publicLinksForImage(
