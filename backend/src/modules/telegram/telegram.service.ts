@@ -340,6 +340,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       const markdown = links.imageUrl
         ? `![${displayImage.originalName}](${links.imageUrl})`
         : '';
+      const nodeseek = links.imageUrl ? `![](${links.imageUrl})` : '';
 
       await this.sendPanel(token, chatId, {
         text: [
@@ -352,6 +353,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           this.publicLinkLine(displayImage, setting),
           links.shareUrl ? `分享页：${links.shareUrl}` : '',
           markdown ? `Markdown：${markdown}` : '',
+          nodeseek ? `NodeSeek：${nodeseek}` : '',
         ]
           .filter(Boolean)
           .join('\n'),
@@ -542,6 +544,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       panel = await this.integrationPanel(ownerId, setting, String(chatId));
     } else if (action === 'library') {
       panel = await this.libraryPanel(ownerId, setting);
+    } else if (action.startsWith('img:')) {
+      panel = await this.imagePanel(
+        ownerId,
+        setting,
+        action.slice('img:'.length),
+      );
     } else if (action === 'search') {
       panel = await this.searchPanel(ownerId, setting, '');
     } else if (action === 'grab') {
@@ -657,7 +665,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         ],
         [
           { text: '集成状态', callback_data: 'pv:integrations' },
-          { text: '上传策略', callback_data: 'pv:policy' },
+          { text: '回收站', callback_data: 'pv:trash' },
         ],
         [{ text: '返回控制台', callback_data: 'pv:home' }],
       ],
@@ -708,29 +716,12 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             ].join('\n')
           : '最近图片\n\n暂无图片。',
       keyboard: [
-        ...images
-          .map((image) => ({
-            image,
-            links: this.publicLinksForImage(image, setting),
-          }))
-          .filter((item) => item.links.imageUrl && item.links.shareUrl)
-          .slice(0, 3)
-          .map(({ image, links }) => [
-            {
-              text: `打开：${image.title || image.originalName}`,
-              url: links.imageUrl,
-            },
-            { text: '分享页', url: links.shareUrl },
-          ]),
+        ...this.imageViewRows(images),
         [
-          { text: '复制格式', callback_data: 'pv:links' },
+          { text: '图片库', callback_data: 'pv:library' },
           { text: '返回控制台', callback_data: 'pv:home' },
         ],
       ],
-      previews: images
-        .map((image) => this.previewForImage(ownerId, image, setting))
-        .filter((preview): preview is TelegramPreview => Boolean(preview))
-        .slice(0, 3),
     };
   }
 
@@ -763,7 +754,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         keyboard: [
           [
             { text: '上传说明', callback_data: 'pv:upload' },
-            { text: '可见性', callback_data: 'pv:policy' },
+            { text: '上传位置', callback_data: 'pv:location' },
           ],
           [{ text: '返回控制台', callback_data: 'pv:home' }],
         ],
@@ -797,6 +788,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         '',
         `直链：${links.imageUrl}`,
         `Markdown：![${title}](${links.imageUrl})`,
+        `NodeSeek：![](${links.imageUrl})`,
         `HTML：<img src="${links.imageUrl}" alt="${title}">`,
         `BBCode：[img]${links.imageUrl}[/img]`,
         `分享页：${links.shareUrl}`,
@@ -807,11 +799,108 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           { text: '分享页', url: links.shareUrl },
         ],
         [
-          { text: '最近图片', callback_data: 'pv:recent' },
+          { text: '图片库', callback_data: 'pv:library' },
           { text: '返回控制台', callback_data: 'pv:home' },
         ],
       ],
     };
+  }
+
+  private async imagePanel(
+    ownerId: string,
+    setting: TelegramRuntimeSetting,
+    imageId: string,
+  ): Promise<TelegramPanel> {
+    const image = await this.prisma.image.findFirst({
+      where: {
+        id: imageId,
+        ownerId,
+        uploadedAt: { not: null },
+      },
+      select: {
+        id: true,
+        title: true,
+        originalName: true,
+        mimeType: true,
+        sizeBytes: true,
+        width: true,
+        height: true,
+        visibility: true,
+        status: true,
+        storageKey: true,
+        storageProvider: true,
+        thumbKey: true,
+        createdAt: true,
+        album: {
+          select: { name: true },
+        },
+      },
+    });
+
+    if (!image) {
+      return {
+        text: '图片详情\n\n图片不存在或无权访问。',
+        keyboard: [[{ text: '图片库', callback_data: 'pv:library' }]],
+      };
+    }
+
+    const title = image.title || image.originalName;
+    const dimensions =
+      image.width && image.height ? `${image.width}x${image.height}` : '未知';
+    const links = this.publicLinksForImage(image, setting);
+
+    return {
+      text: [
+        '图片详情',
+        '',
+        title,
+        `文件：${image.originalName}`,
+        `状态：${this.statusText(image.status)} · ${this.visibilityText(
+          image.visibility,
+        )}`,
+        `尺寸：${dimensions} · 大小：${this.formatBytes(
+          Number(image.sizeBytes),
+        )}`,
+        `相册：${image.album?.name ?? '未归档'}`,
+        `上传：${this.formatDateTime(image.createdAt)}`,
+        this.publicLinkLine(image, setting),
+        links.shareUrl ? `分享页：${links.shareUrl}` : '',
+        links.imageUrl ? `NodeSeek：![](${links.imageUrl})` : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      keyboard: [
+        ...(links.imageUrl && links.shareUrl
+          ? [
+              [
+                { text: '打开图片', url: links.imageUrl },
+                { text: '分享页', url: links.shareUrl },
+              ],
+            ]
+          : []),
+        [
+          { text: '复制格式', callback_data: 'pv:links' },
+          { text: '图片库', callback_data: 'pv:library' },
+        ],
+        [{ text: '返回控制台', callback_data: 'pv:home' }],
+      ],
+      previews: [this.previewForImage(ownerId, image, setting)].filter(
+        (preview): preview is TelegramPreview => Boolean(preview),
+      ),
+    };
+  }
+
+  private imageViewRows(
+    images: Array<{ id: string; title: string; originalName: string }>,
+  ): InlineKeyboardButton[][] {
+    return images.slice(0, 8).map((image, index) => [
+      {
+        text: `查看第 ${index + 1} 张：${this.truncateButtonText(
+          image.title || image.originalName,
+        )}`,
+        callback_data: `pv:img:${image.id}`,
+      },
+    ]);
   }
 
   private async libraryPanel(
@@ -868,6 +957,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             ].join('\n')
           : '图片库\n\n暂无图片。',
       keyboard: [
+        ...this.imageViewRows(images),
         [
           { text: '刷新', callback_data: 'pv:library' },
           {
@@ -876,15 +966,11 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           },
         ],
         [
-          { text: '搜索', callback_data: 'pv:search' },
+          { text: '搜索图片', callback_data: 'pv:search' },
           { text: '复制格式', callback_data: 'pv:links' },
         ],
         [{ text: '返回控制台', callback_data: 'pv:home' }],
       ],
-      previews: images
-        .map((image) => this.previewForImage(ownerId, image, setting))
-        .filter((preview): preview is TelegramPreview => Boolean(preview))
-        .slice(0, 4),
     };
   }
 
@@ -906,7 +992,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           [
             { text: '图片库', callback_data: 'pv:library' },
             {
-              text: '打开搜索页',
+              text: '打开图片库',
               url: new URL('/library', this.publicAppUrl(setting)).toString(),
             },
           ],
@@ -963,6 +1049,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             ].join('\n')
           : `搜索：${keyword}\n\n没有匹配图片。`,
       keyboard: [
+        ...this.imageViewRows(images),
         [
           { text: '重新搜索', callback_data: 'pv:search' },
           {
@@ -975,10 +1062,6 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         ],
         [{ text: '返回控制台', callback_data: 'pv:home' }],
       ],
-      previews: images
-        .map((image) => this.previewForImage(ownerId, image, setting))
-        .filter((preview): preview is TelegramPreview => Boolean(preview))
-        .slice(0, 4),
     };
   }
 
@@ -999,7 +1082,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         keyboard: [
           [
             { text: '上传位置', callback_data: 'pv:location' },
-            { text: '上传策略', callback_data: 'pv:policy' },
+            { text: '图片库', callback_data: 'pv:library' },
           ],
           [{ text: '返回控制台', callback_data: 'pv:home' }],
         ],
@@ -1035,6 +1118,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           `可见性：${this.visibilityText(displayImage.visibility)}`,
           this.publicLinkLine(displayImage, setting),
           links.shareUrl ? `分享页：${links.shareUrl}` : '',
+          links.imageUrl ? `NodeSeek：![](${links.imageUrl})` : '',
         ]
           .filter(Boolean)
           .join('\n'),
@@ -1066,7 +1150,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         ].join('\n'),
         keyboard: [
           [
-            { text: '上传策略', callback_data: 'pv:policy' },
+            { text: '上传位置', callback_data: 'pv:location' },
             { text: '返回控制台', callback_data: 'pv:home' },
           ],
         ],
@@ -1150,7 +1234,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       keyboard: [
         ...albums.slice(0, 6).map((album) => [
           {
-            text: `${album.name} (${album._count.images})`,
+            text: `设为上传位置：${this.truncateButtonText(album.name)}`,
             callback_data: `pv:album:${album.id}`,
           },
         ]),
@@ -1266,6 +1350,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             ].join('\n')
           : '回收站\n\n暂无已删除图片。',
       keyboard: [
+        ...this.imageViewRows(images),
         [
           { text: '刷新', callback_data: 'pv:trash' },
           {
@@ -1275,10 +1360,6 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         ],
         [{ text: '返回控制台', callback_data: 'pv:home' }],
       ],
-      previews: images
-        .map((image) => this.previewForImage(ownerId, image, setting))
-        .filter((preview): preview is TelegramPreview => Boolean(preview))
-        .slice(0, 4),
     };
   }
 
@@ -1296,6 +1377,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         },
       },
     });
+    const current = albums.find(
+      (album) => album.id === setting.telegramAlbumId,
+    );
 
     return {
       text:
@@ -1303,25 +1387,38 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           ? [
               '相册',
               '',
+              `当前上传位置：${current?.name ?? '未绑定'}`,
+              '',
               ...albums.map(
                 (album, index) =>
-                  `${index + 1}. ${album.name} · ${album._count.images} 张 · ${this.visibilityText(
+                  `${index + 1}. ${album.name}${
+                    album.id === setting.telegramAlbumId
+                      ? ' · 当前上传位置'
+                      : ''
+                  } · ${album._count.images} 张 · ${this.visibilityText(
                     album.visibility,
                   )}`,
               ),
             ].join('\n')
           : '相册\n\n暂无相册。',
       keyboard: [
+        ...albums.slice(0, 8).map((album) => [
+          {
+            text: `设为上传位置：${this.truncateButtonText(album.name)}`,
+            callback_data: `pv:album:${album.id}`,
+          },
+        ]),
+        [
+          { text: '不绑定相册', callback_data: 'pv:album:none' },
+          { text: '上传位置', callback_data: 'pv:location' },
+        ],
         [
           {
             text: '打开相册页',
             url: new URL('/albums', this.publicAppUrl(setting)).toString(),
           },
         ],
-        [
-          { text: '最近图片', callback_data: 'pv:recent' },
-          { text: '返回控制台', callback_data: 'pv:home' },
-        ],
+        [{ text: '返回控制台', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -1375,7 +1472,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           { text: '设为隐藏链接', callback_data: 'pv:vis:UNLISTED' },
         ],
         [
-          { text: '上传策略', callback_data: 'pv:policy' },
+          { text: '上传位置', callback_data: 'pv:location' },
           { text: '返回控制台', callback_data: 'pv:home' },
         ],
       ],
@@ -1559,28 +1656,28 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private mainKeyboard(): InlineKeyboardButton[][] {
     return [
       [
-        { text: '状态', callback_data: 'pv:status' },
+        { text: '状态中心', callback_data: 'pv:status' },
         { text: '图片库', callback_data: 'pv:library' },
       ],
       [
-        { text: '搜索', callback_data: 'pv:search' },
-        { text: '抓图', callback_data: 'pv:grab' },
+        { text: '搜索图片', callback_data: 'pv:search' },
+        { text: '链接抓图', callback_data: 'pv:grab' },
       ],
       [
-        { text: '位置', callback_data: 'pv:location' },
+        { text: '上传位置', callback_data: 'pv:location' },
         { text: '相册', callback_data: 'pv:albums' },
       ],
       [
-        { text: '密钥', callback_data: 'pv:keys' },
+        { text: 'API 密钥', callback_data: 'pv:keys' },
         { text: '回收站', callback_data: 'pv:trash' },
       ],
       [
-        { text: '集成', callback_data: 'pv:integrations' },
-        { text: '链接', callback_data: 'pv:links' },
+        { text: '集成状态', callback_data: 'pv:integrations' },
+        { text: '复制格式', callback_data: 'pv:links' },
       ],
       [
         { text: '刷新', callback_data: 'pv:refresh' },
-        { text: '站点', callback_data: 'pv:site' },
+        { text: '站点入口', callback_data: 'pv:site' },
       ],
     ];
   }
@@ -2100,6 +2197,13 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         'image/avif': 'avif',
       }[contentType] ?? 'jpg'
     );
+  }
+
+  private truncateButtonText(value: string, maxLength = 24) {
+    const normalized = value.trim();
+    return normalized.length > maxLength
+      ? `${normalized.slice(0, maxLength - 1)}…`
+      : normalized;
   }
 
   private delay(ms: number) {
