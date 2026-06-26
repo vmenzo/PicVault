@@ -110,7 +110,10 @@ export class ImagesService {
         }),
         this.prisma.album.count({ where: { ownerId } }),
         this.prisma.image.findMany({
-          where: { ownerId, status: { not: ImageStatus.DELETED } },
+          where: {
+            ownerId,
+            uploadedAt: { not: null },
+          },
           select: { sizeBytes: true },
         }),
         this.prisma.user.findUniqueOrThrow({
@@ -210,18 +213,49 @@ export class ImagesService {
 
   async restore(ownerId: string, id: string) {
     await this.ensureOwner(ownerId, id);
+    const image = await this.prisma.image.findFirst({
+      where: {
+        id,
+        ownerId,
+        status: ImageStatus.DELETED,
+        uploadedAt: { not: null },
+      },
+      select: {
+        id: true,
+        storageKey: true,
+      },
+    });
+
+    if (!image) {
+      throw new BadRequestException(
+        'Only uploaded deleted images can be restored',
+      );
+    }
+
     const restored = await this.prisma.image.updateMany({
-      where: { id, ownerId, status: ImageStatus.DELETED },
+      where: {
+        id,
+        ownerId,
+        status: ImageStatus.DELETED,
+        uploadedAt: { not: null },
+      },
       data: {
-        status: ImageStatus.READY,
+        status: ImageStatus.PROCESSING,
       },
     });
 
     if (restored.count !== 1) {
-      throw new BadRequestException('Only deleted images can be restored');
+      throw new BadRequestException(
+        'Only uploaded deleted images can be restored',
+      );
     }
 
-    const image = await this.prisma.image.findUniqueOrThrow({
+    await this.processingQueue.add('process-image', {
+      imageId: image.id,
+      storageKey: image.storageKey,
+    });
+
+    const restoredImage = await this.prisma.image.findUniqueOrThrow({
       where: { id },
       include: {
         album: {
@@ -234,14 +268,19 @@ export class ImagesService {
     });
 
     return this.serializeImage(
-      image,
-      await this.getImageStorageSetting(ownerId, image.storageProvider),
+      restoredImage,
+      await this.getImageStorageSetting(ownerId, restoredImage.storageProvider),
     );
   }
 
   async permanentRemove(ownerId: string, id: string) {
     await this.ensureOwner(ownerId, id);
-    await this.permanentlyDelete(ownerId, [id]);
+    const result = await this.permanentlyDelete(ownerId, [id]);
+    if (result.affected !== 1) {
+      throw new BadRequestException(
+        'Only deleted images can be permanently deleted',
+      );
+    }
     return { ok: true };
   }
 
@@ -284,13 +323,49 @@ export class ImagesService {
     }
 
     if (dto.action === BulkImageAction.RESTORE) {
-      const result = await this.prisma.image.updateMany({
+      const images = await this.prisma.image.findMany({
         where: {
           ...where,
           status: ImageStatus.DELETED,
+          uploadedAt: { not: null },
         },
-        data: { status: ImageStatus.READY },
+        select: { id: true, storageKey: true },
       });
+
+      if (!images.length) {
+        return { affected: 0 };
+      }
+
+      const result = await this.prisma.image.updateMany({
+        where: {
+          id: { in: images.map((image) => image.id) },
+          status: ImageStatus.DELETED,
+          uploadedAt: { not: null },
+        },
+        data: { status: ImageStatus.PROCESSING },
+      });
+
+      const queuedImages = result.count
+        ? await this.prisma.image.findMany({
+            where: {
+              id: { in: images.map((image) => image.id) },
+              ownerId,
+              status: ImageStatus.PROCESSING,
+              uploadedAt: { not: null },
+            },
+            select: { id: true, storageKey: true },
+          })
+        : [];
+
+      await Promise.all(
+        queuedImages.map((image) =>
+          this.processingQueue.add('process-image', {
+            imageId: image.id,
+            storageKey: image.storageKey,
+          }),
+        ),
+      );
+
       return { affected: result.count };
     }
 
@@ -361,17 +436,39 @@ export class ImagesService {
 
     if (dto.action === BulkImageAction.REPROCESS) {
       const images = await this.prisma.image.findMany({
-        where,
+        where: {
+          ...where,
+          status: { not: ImageStatus.DELETED },
+          uploadedAt: { not: null },
+        },
         select: { id: true, storageKey: true },
       });
 
-      await this.prisma.image.updateMany({
-        where,
-        data: { status: ImageStatus.PROCESSING },
-      });
+      const result = images.length
+        ? await this.prisma.image.updateMany({
+            where: {
+              id: { in: images.map((image) => image.id) },
+              status: { not: ImageStatus.DELETED },
+              uploadedAt: { not: null },
+            },
+            data: { status: ImageStatus.PROCESSING },
+          })
+        : { count: 0 };
+
+      const queuedImages = result.count
+        ? await this.prisma.image.findMany({
+            where: {
+              id: { in: images.map((image) => image.id) },
+              ownerId,
+              status: ImageStatus.PROCESSING,
+              uploadedAt: { not: null },
+            },
+            select: { id: true, storageKey: true },
+          })
+        : [];
 
       await Promise.all(
-        images.map((image) =>
+        queuedImages.map((image) =>
           this.processingQueue.add('process-image', {
             imageId: image.id,
             storageKey: image.storageKey,
@@ -379,7 +476,7 @@ export class ImagesService {
         ),
       );
 
-      return { affected: images.length };
+      return { affected: result.count };
     }
 
     if (dto.action === BulkImageAction.PERMANENT_DELETE) {
@@ -394,10 +491,12 @@ export class ImagesService {
       where: {
         ownerId,
         id: { in: ids },
+        status: ImageStatus.DELETED,
       },
       select: {
         id: true,
         sizeBytes: true,
+        uploadedAt: true,
         storageProvider: true,
         storageKey: true,
         thumbKey: true,
@@ -407,7 +506,7 @@ export class ImagesService {
     });
 
     const releasedBytes = images.reduce(
-      (sum, image) => sum + image.sizeBytes,
+      (sum, image) => sum + (image.uploadedAt ? image.sizeBytes : BigInt(0)),
       BigInt(0),
     );
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -420,6 +519,7 @@ export class ImagesService {
         where: {
           ownerId,
           id: { in: images.map((image) => image.id) },
+          status: ImageStatus.DELETED,
         },
       }),
       this.prisma.user.update({
@@ -456,6 +556,8 @@ export class ImagesService {
       select: {
         id: true,
         storageKey: true,
+        status: true,
+        uploadedAt: true,
       },
     });
 
@@ -463,10 +565,27 @@ export class ImagesService {
       throw new ForbiddenException('Image is not accessible');
     }
 
-    await this.prisma.image.update({
-      where: { id },
+    if (image.status === ImageStatus.DELETED || !image.uploadedAt) {
+      throw new BadRequestException(
+        'Only uploaded non-deleted images can be reprocessed',
+      );
+    }
+
+    const updated = await this.prisma.image.updateMany({
+      where: {
+        id,
+        ownerId,
+        status: { not: ImageStatus.DELETED },
+        uploadedAt: { not: null },
+      },
       data: { status: ImageStatus.PROCESSING },
     });
+
+    if (updated.count !== 1) {
+      throw new BadRequestException(
+        'Only uploaded non-deleted images can be reprocessed',
+      );
+    }
 
     await this.processingQueue.add('process-image', {
       imageId: image.id,

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { CopyDocument, Download, Picture } from '@element-plus/icons-vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage } from 'element-plus/es/components/message/index';
 import { publicImageInfoApi } from '@/api/images';
 import type { ImageItem } from '@/api/types';
 import { copyToClipboard } from '@/utils/clipboard';

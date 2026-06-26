@@ -8,7 +8,7 @@ import {
   Refresh,
   UploadFilled,
 } from '@element-plus/icons-vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage } from 'element-plus/es/components/message/index';
 import { copyToClipboard } from '@/utils/clipboard';
 import { formatBytes } from '@/utils/format';
 

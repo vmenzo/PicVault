@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { FormInstance, FormRules } from 'element-plus';
-import { ElMessage } from 'element-plus';
+import { ElMessage } from 'element-plus/es/components/message/index';
 import { Grid, Key, Lock, Message, User } from '@element-plus/icons-vue';
 import { requestPasswordResetApi, resetPasswordApi } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth';

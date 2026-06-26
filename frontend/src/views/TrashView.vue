@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
 import { Delete, RefreshLeft } from '@element-plus/icons-vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus/es/components/message/index';
+import { ElMessageBox } from 'element-plus/es/components/message-box/index';
 import {
   listImagesApi,
   permanentDeleteImageApi,
@@ -25,8 +26,13 @@ async function load() {
 }
 
 async function restore(image: ImageItem) {
+  if (!isRestorable(image)) {
+    ElMessage.warning('只有已上传的图片可以恢复');
+    return;
+  }
+
   await restoreImageApi(image.id);
-  ElMessage.success('已恢复');
+  ElMessage.success('已恢复并重新处理');
   load();
 }
 
@@ -40,6 +46,10 @@ async function remove(image: ImageItem) {
 }
 
 onMounted(load);
+
+function isRestorable(image: ImageItem) {
+  return image.status === 'DELETED' && Boolean(image.uploadedAt);
+}
 </script>
 
 <template>
@@ -75,7 +85,11 @@ onMounted(load);
         </el-table-column>
         <el-table-column label="操作" width="190" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" :icon="RefreshLeft" @click="restore(row)"
+            <el-button
+              size="small"
+              :icon="RefreshLeft"
+              :disabled="!isRestorable(row)"
+              @click="restore(row)"
               >恢复</el-button
             >
             <el-button

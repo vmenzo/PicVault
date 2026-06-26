@@ -418,8 +418,12 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
           storageProvider: image.storageProvider,
         })
         .catch(() => undefined);
-      await this.prisma.image.update({
-        where: { id: image.id },
+      await this.prisma.image.updateMany({
+        where: {
+          id: image.id,
+          status: ImageStatus.PENDING,
+          uploadedAt: null,
+        },
         data: { status: ImageStatus.FAILED },
       });
 

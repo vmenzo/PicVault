@@ -35,11 +35,20 @@ export class ImageProcessor extends WorkerHost {
         storageKey: true,
         mimeType: true,
         sizeBytes: true,
+        status: true,
+        uploadedAt: true,
       },
     });
 
     if (!image) {
       return { ok: false };
+    }
+
+    if (image.status !== ImageStatus.PROCESSING || !image.uploadedAt) {
+      this.logger.warn(
+        `Skipping image ${job.data.imageId} because it is ${image.status}`,
+      );
+      return { ok: false, skipped: true };
     }
 
     const generatedKeys: string[] = [];
@@ -154,26 +163,48 @@ export class ImageProcessor extends WorkerHost {
         updates.avifUrl = this.storage.getPublicUrlWithBase(avifKey, setting);
       }
 
-      await this.prisma.image.update({
-        where: { id: image.id },
-        data: updates,
-      });
-      persisted = true;
-
-      if (
-        updates.sizeBytes !== undefined &&
-        updates.sizeBytes !== image.sizeBytes
-      ) {
-        const delta = updates.sizeBytes - image.sizeBytes;
-        await this.prisma.user.update({
-          where: { id: image.ownerId },
-          data: {
-            usedBytes: {
-              increment: delta,
-            },
+      const sizeDelta =
+        updates.sizeBytes !== undefined && updates.sizeBytes !== image.sizeBytes
+          ? updates.sizeBytes - image.sizeBytes
+          : BigInt(0);
+      const persistedResult = await this.prisma.$transaction(async (tx) => {
+        const result = await tx.image.updateMany({
+          where: {
+            id: image.id,
+            status: ImageStatus.PROCESSING,
+            uploadedAt: { not: null },
           },
+          data: updates,
         });
+
+        if (result.count === 1 && sizeDelta !== BigInt(0)) {
+          await tx.user.update({
+            where: { id: image.ownerId },
+            data: {
+              usedBytes: {
+                increment: sizeDelta,
+              },
+            },
+          });
+        }
+
+        return result;
+      });
+
+      if (persistedResult.count !== 1) {
+        this.logger.warn(
+          `Skipping image ${job.data.imageId} persistence because state changed`,
+        );
+        await this.cleanupUnreferencedGeneratedKeys(
+          image.id,
+          generatedKeys,
+          setting,
+        );
+        persisted = true;
+        return { ok: false, skipped: true };
       }
+
+      persisted = true;
 
       return { ok: true };
     } catch (error) {
@@ -184,8 +215,12 @@ export class ImageProcessor extends WorkerHost {
       this.logger.error(
         `Failed to process image ${job.data.imageId}: ${message}`,
       );
-      await this.prisma.image.update({
-        where: { id: job.data.imageId },
+      await this.prisma.image.updateMany({
+        where: {
+          id: job.data.imageId,
+          status: ImageStatus.PROCESSING,
+          uploadedAt: { not: null },
+        },
         data: { status: ImageStatus.FAILED },
       });
 
@@ -199,6 +234,34 @@ export class ImageProcessor extends WorkerHost {
         );
       }
     }
+  }
+
+  private async cleanupUnreferencedGeneratedKeys(
+    imageId: string,
+    keys: string[],
+    setting: StorageRuntimeConfig,
+  ) {
+    if (!keys.length) {
+      return;
+    }
+
+    const current = await this.prisma.image.findUnique({
+      where: { id: imageId },
+      select: {
+        thumbKey: true,
+        webpKey: true,
+        avifKey: true,
+      },
+    });
+    const referenced = new Set(
+      [current?.thumbKey, current?.webpKey, current?.avifKey].filter(Boolean),
+    );
+
+    await Promise.allSettled(
+      keys
+        .filter((key) => !referenced.has(key))
+        .map((key) => this.storage.deleteObject(key, setting)),
+    );
   }
 
   private applyImageOptions(

@@ -13,7 +13,8 @@ import {
   Star,
   UploadFilled,
 } from '@element-plus/icons-vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus/es/components/message/index';
+import { ElMessageBox } from 'element-plus/es/components/message-box/index';
 import { useRoute, useRouter } from 'vue-router';
 import { listAlbumsApi } from '@/api/albums';
 import ProtectedImage from '@/components/ProtectedImage.vue';
@@ -90,8 +91,13 @@ const moveAlbumOptions = computed(() => [
 const selectedImages = computed(() =>
   images.value.filter((image) => selectedIds.value.includes(image.id)),
 );
-const selectedDeletedImages = computed(() =>
-  selectedImages.value.filter((image) => image.status === 'DELETED'),
+const selectedRestorableImages = computed(() =>
+  selectedImages.value.filter((image) => isRestorable(image)),
+);
+const selectedReprocessableImages = computed(() =>
+  selectedImages.value.filter(
+    (image) => image.status !== 'DELETED' && Boolean(image.uploadedAt),
+  ),
 );
 const allVisibleSelected = computed(
   () =>
@@ -214,6 +220,10 @@ function isShareable(image: ImageItem) {
   return image.status === 'READY' && image.visibility !== 'PRIVATE';
 }
 
+function isRestorable(image: ImageItem) {
+  return image.status === 'DELETED' && Boolean(image.uploadedAt);
+}
+
 function shareablePublicUrl(image: ImageItem) {
   return isShareable(image) ? toAbsoluteUrl(image.publicUrl) : '';
 }
@@ -258,8 +268,13 @@ async function remove(row: ImageItem) {
 }
 
 async function restore(row: ImageItem) {
+  if (!isRestorable(row)) {
+    ElMessage.warning('只有已上传的回收站图片可以恢复');
+    return;
+  }
+
   await restoreImageApi(row.id);
-  ElMessage.success('已恢复');
+  ElMessage.success('已恢复并重新处理');
   detailVisible.value = false;
   load();
 }
@@ -295,17 +310,17 @@ async function bulkDelete() {
 
 async function bulkRestore() {
   if (!selectedIds.value.length) return;
-  if (!selectedDeletedImages.value.length) {
-    ElMessage.warning('所选图片没有可恢复的回收站项目');
+  if (!selectedRestorableImages.value.length) {
+    ElMessage.warning('所选图片没有可恢复的已上传回收站项目');
     return;
   }
 
   const result = await bulkImagesApi({
-    ids: selectedDeletedImages.value.map((image) => image.id),
+    ids: selectedRestorableImages.value.map((image) => image.id),
     action: 'RESTORE',
   });
   selectedIds.value = [];
-  ElMessage.success(`已恢复 ${result.affected} 张图片`);
+  ElMessage.success(`已恢复并重新处理 ${result.affected} 张图片`);
   load();
 }
 
@@ -371,15 +386,26 @@ async function bulkTags(action: 'ADD_TAGS' | 'REMOVE_TAGS') {
 
 async function bulkReprocess() {
   if (!selectedIds.value.length) return;
-  await bulkImagesApi({
-    ids: selectedIds.value,
+  if (!selectedReprocessableImages.value.length) {
+    ElMessage.warning('所选图片没有可重新处理的已上传项目');
+    return;
+  }
+
+  const result = await bulkImagesApi({
+    ids: selectedReprocessableImages.value.map((image) => image.id),
     action: 'REPROCESS',
   });
-  ElMessage.success('已提交重新处理任务');
+  selectedIds.value = [];
+  ElMessage.success(`已提交 ${result.affected} 张图片重新处理`);
   load();
 }
 
 async function reprocess(row: ImageItem) {
+  if (row.status === 'DELETED' || !row.uploadedAt) {
+    ElMessage.warning('只有已上传且未删除的图片可以重新处理');
+    return;
+  }
+
   await reprocessImageApi(row.id);
   ElMessage.success('已提交重新处理任务');
   detailVisible.value = false;
@@ -608,10 +634,16 @@ watch(
           <el-button size="small" @click="bulkTags('REMOVE_TAGS')"
             >删标签</el-button
           >
-          <el-button size="small" @click="bulkReprocess">重新处理</el-button>
           <el-button
             size="small"
-            :disabled="!selectedDeletedImages.length"
+            :disabled="!selectedReprocessableImages.length"
+            @click="bulkReprocess"
+          >
+            重新处理
+          </el-button>
+          <el-button
+            size="small"
+            :disabled="!selectedRestorableImages.length"
             @click="bulkRestore"
           >
             恢复
@@ -722,7 +754,11 @@ watch(
           >
             删除
           </el-button>
-          <el-button v-else size="small" @click="restore(image)"
+          <el-button
+            v-else
+            size="small"
+            :disabled="!isRestorable(image)"
+            @click="restore(image)"
             >恢复</el-button
           >
         </div>
@@ -955,12 +991,20 @@ watch(
             移入回收站
           </el-button>
           <el-button
-            v-if="selectedImage.status !== 'DELETED'"
+            v-if="
+              selectedImage.status !== 'DELETED' && selectedImage.uploadedAt
+            "
             @click="reprocess(selectedImage)"
           >
             重新处理
           </el-button>
-          <el-button v-else @click="restore(selectedImage)">恢复</el-button>
+          <el-button
+            v-if="selectedImage.status === 'DELETED'"
+            :disabled="!isRestorable(selectedImage)"
+            @click="restore(selectedImage)"
+          >
+            恢复
+          </el-button>
           <el-button
             v-if="selectedImage.status === 'DELETED'"
             type="danger"

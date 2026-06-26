@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
 import { createHash } from 'node:crypto';
 import { Request } from 'express';
-import { UserRole } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
@@ -41,28 +41,50 @@ export class AuthService {
 
   async register(dto: RegisterDto) {
     const email = dto.email.toLowerCase().trim();
-    const existing = await this.prisma.user.findUnique({
-      where: { email },
-    });
-
-    if (existing) {
-      throw new ConflictException('Email is already registered');
-    }
-
-    const userCount = await this.prisma.user.count();
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const defaultQuotaBytes = await this.getDefaultQuotaBytes();
-    const user = await this.prisma.user.create({
-      data: {
-        email,
-        name: dto.name,
-        passwordHash,
-        role: userCount === 0 ? UserRole.ADMIN : UserRole.USER,
-        quotaBytes: defaultQuotaBytes,
-      },
-    });
 
-    return this.createSession(user);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const user = await this.prisma.$transaction(
+          async (tx) => {
+            const existing = await tx.user.findUnique({
+              where: { email },
+            });
+
+            if (existing) {
+              throw new ConflictException('Email is already registered');
+            }
+
+            const userCount = await tx.user.count();
+            return tx.user.create({
+              data: {
+                email,
+                name: dto.name,
+                passwordHash,
+                role: userCount === 0 ? UserRole.ADMIN : UserRole.USER,
+                quotaBytes: defaultQuotaBytes,
+              },
+            });
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        );
+
+        return this.createSession(user);
+      } catch (error) {
+        if (attempt === 0 && this.isTransactionConflict(error)) {
+          continue;
+        }
+
+        if (this.isUniqueConstraintError(error)) {
+          throw new ConflictException('Email is already registered');
+        }
+
+        throw error;
+      }
+    }
+
+    throw new ConflictException('Registration could not be completed');
   }
 
   async login(dto: LoginDto) {
@@ -103,13 +125,21 @@ export class AuthService {
       }
     }
 
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        name: dto.name,
-        email,
-      },
-    });
+    const user = await this.prisma.user
+      .update({
+        where: { id: userId },
+        data: {
+          name: dto.name,
+          email,
+        },
+      })
+      .catch((error: unknown) => {
+        if (this.isUniqueConstraintError(error)) {
+          throw new ConflictException('Email is already registered');
+        }
+
+        throw error;
+      });
 
     return this.serializeUser(user);
   }
@@ -272,27 +302,38 @@ export class AuthService {
 
     const now = new Date();
     const passwordHash = await bcrypt.hash(dto.newPassword, 12);
-    await this.prisma.$transaction([
-      this.prisma.user.update({
+    await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.passwordResetToken.updateMany({
+        where: {
+          id: resetToken.id,
+          usedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { usedAt: now },
+      });
+
+      if (claimed.count !== 1) {
+        throw new BadRequestException(
+          'Password reset link is invalid or expired',
+        );
+      }
+
+      await tx.user.update({
         where: { id: resetToken.userId },
         data: {
           passwordHash,
           passwordChangedAt: now,
         },
-      }),
-      this.prisma.passwordResetToken.update({
-        where: { id: resetToken.id },
-        data: { usedAt: now },
-      }),
-      this.prisma.passwordResetToken.updateMany({
+      });
+      await tx.passwordResetToken.updateMany({
         where: {
           userId: resetToken.userId,
           id: { not: resetToken.id },
           usedAt: null,
         },
         data: { usedAt: now },
-      }),
-    ]);
+      });
+    });
     await this.sessions.revokeUser(resetToken.userId);
 
     await this.audit.record(
@@ -361,6 +402,20 @@ export class AuthService {
     });
 
     return setting?.defaultQuotaBytes ?? BigInt(1024 * 1024 * 1024);
+  }
+
+  private isTransactionConflict(error: unknown) {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2034'
+    );
+  }
+
+  private isUniqueConstraintError(error: unknown) {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    );
   }
 
   private hashToken(token: string) {

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import type { UploadRawFile, UploadRequestOptions } from 'element-plus';
-import { ElMessage } from 'element-plus';
+import { ElMessage } from 'element-plus/es/components/message/index';
 import {
   Check,
   CircleClose,
@@ -30,6 +30,7 @@ import { formatBytes } from '@/utils/format';
 import { toAbsoluteUrl } from '@/utils/url';
 
 type QueueStatus =
+  | 'preparing'
   | 'waiting'
   | 'uploading'
   | 'processing'
@@ -69,7 +70,7 @@ const albumOptions = computed(() => [
 const activeCount = computed(
   () =>
     queue.value.filter((item) =>
-      ['waiting', 'uploading', 'processing'].includes(item.status),
+      ['waiting', 'preparing', 'uploading', 'processing'].includes(item.status),
     ).length,
 );
 const successItems = computed(() =>
@@ -134,8 +135,8 @@ function validateFile(file: File) {
 
 async function runLocalUpload(item: QueueItem) {
   if (!item.file) return;
-  item.status = 'uploading';
-  item.progress = 8;
+  item.status = 'preparing';
+  item.progress = 5;
 
   const signed = await signUploadApi({
     filename: item.file.name,
@@ -146,12 +147,13 @@ async function runLocalUpload(item: QueueItem) {
     storageProvider: item.storageProvider,
   });
 
-  item.progress = 25;
+  item.status = 'uploading';
+  item.progress = 10;
   await putObject(signed.uploadUrl, item.file, signed.headers, (percent) => {
-    item.progress = Math.max(25, Math.min(82, Math.round(percent * 0.57 + 25)));
+    item.progress = Math.max(10, Math.min(85, Math.round(percent * 0.75 + 10)));
   });
   item.status = 'processing';
-  item.progress = 88;
+  item.progress = 90;
   const image = await completeUploadApi(signed.imageId);
   item.status = 'success';
   item.progress = 100;
@@ -163,8 +165,8 @@ async function runLocalUpload(item: QueueItem) {
 
 async function runRemoteImport(item: QueueItem) {
   if (!item.remoteUrl) return;
-  item.status = 'uploading';
-  item.progress = 20;
+  item.status = 'preparing';
+  item.progress = 5;
   const image = await importUrlApi({
     url: item.remoteUrl,
     filename: remoteFilename.value.trim() || undefined,
@@ -324,6 +326,7 @@ function statusType(status: QueueStatus) {
 
 function statusLabel(status: QueueStatus) {
   return {
+    preparing: '准备中',
     waiting: '等待',
     uploading: '上传中',
     processing: '处理中',

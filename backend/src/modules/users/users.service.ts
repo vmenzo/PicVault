@@ -106,9 +106,11 @@ export class UsersService {
       throw new ForbiddenException('You cannot remove your own admin role');
     }
 
-    if (dto.email && dto.email !== user.email) {
+    const email = dto.email?.toLowerCase().trim();
+
+    if (email && email !== user.email) {
       const existing = await this.prisma.user.findUnique({
-        where: { email: dto.email },
+        where: { email },
         select: { id: true },
       });
       if (existing) {
@@ -116,26 +118,34 @@ export class UsersService {
       }
     }
 
-    const updated = await this.prisma.user.update({
-      where: { id },
-      data: {
-        email: dto.email,
-        name: dto.name,
-        role: dto.role,
-        disabled: dto.disabled,
-        quotaBytes:
-          dto.quotaMb === undefined
-            ? undefined
-            : BigInt(dto.quotaMb) * BigInt(1024 * 1024),
-      },
-    });
+    const updated = await this.prisma.user
+      .update({
+        where: { id },
+        data: {
+          email,
+          name: dto.name,
+          role: dto.role,
+          disabled: dto.disabled,
+          quotaBytes:
+            dto.quotaMb === undefined
+              ? undefined
+              : BigInt(dto.quotaMb) * BigInt(1024 * 1024),
+        },
+      })
+      .catch((error: unknown) => {
+        if (this.isUniqueConstraintError(error)) {
+          throw new ConflictException('Email is already registered');
+        }
+
+        throw error;
+      });
 
     await this.audit.record(auditContext, {
       action: 'user.update',
       target: 'user',
       targetId: id,
       metadata: this.cleanMetadata({
-        email: dto.email,
+        email,
         name: dto.name,
         role: dto.role,
         disabled: dto.disabled,
@@ -189,7 +199,10 @@ export class UsersService {
     }
 
     const images = await this.prisma.image.findMany({
-      where: { ownerId: id, status: { not: 'DELETED' } },
+      where: {
+        ownerId: id,
+        uploadedAt: { not: null },
+      },
       select: { sizeBytes: true },
     });
     const usedBytes = images.reduce(
@@ -239,5 +252,12 @@ export class UsersService {
     return Object.fromEntries(
       Object.entries(value).filter(([, item]) => item !== undefined),
     ) as Prisma.InputJsonObject;
+  }
+
+  private isUniqueConstraintError(error: unknown) {
+    return (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    );
   }
 }

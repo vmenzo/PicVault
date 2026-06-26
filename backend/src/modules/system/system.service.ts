@@ -351,6 +351,7 @@ export class SystemService {
       this.config.get<string>('PICVAULT_BACKUP_DIR') ?? '/app/backups';
 
     try {
+      await mkdir(backupDir, { recursive: true });
       const entries = await readdir(backupDir, { withFileTypes: true });
       const directories = entries.filter((entry) => entry.isDirectory());
       const backups = await Promise.all(

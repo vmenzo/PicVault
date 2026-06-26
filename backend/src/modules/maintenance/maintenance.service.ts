@@ -96,14 +96,32 @@ export class MaintenanceService {
         )
       : candidates;
 
+    let affected = 0;
     if (images.length) {
-      await this.prisma.image.updateMany({
-        where: { id: { in: images.map((image) => image.id) } },
+      const result = await this.prisma.image.updateMany({
+        where: {
+          id: { in: images.map((image) => image.id) },
+          status: dto.missingOnly
+            ? ImageStatus.READY
+            : { not: ImageStatus.DELETED },
+          uploadedAt: { not: null },
+        },
         data: { status: ImageStatus.PROCESSING },
       });
+      affected = result.count;
+      const queuedImages = affected
+        ? await this.prisma.image.findMany({
+            where: {
+              id: { in: images.map((image) => image.id) },
+              status: ImageStatus.PROCESSING,
+              uploadedAt: { not: null },
+            },
+            select: { id: true, storageKey: true },
+          })
+        : [];
 
       await Promise.all(
-        images.map((image) =>
+        queuedImages.map((image) =>
           this.processingQueue.add('process-image', {
             imageId: image.id,
             storageKey: image.storageKey,
@@ -116,18 +134,19 @@ export class MaintenanceService {
       action: 'maintenance.reprocess',
       target: 'image',
       metadata: {
-        count: images.length,
+        count: affected,
         missingOnly: Boolean(dto.missingOnly),
       },
     });
 
-    return { affected: images.length };
+    return { affected };
   }
 
   async migrate(actorId: string, dto: MigrateImagesDto, context: AuditContext) {
     const images = await this.prisma.image.findMany({
       where: {
         status: { not: ImageStatus.DELETED },
+        uploadedAt: { not: null },
         storageProvider: { not: dto.targetProvider },
         id: dto.imageIds?.length ? { in: dto.imageIds } : undefined,
       },
@@ -136,6 +155,9 @@ export class MaintenanceService {
         ownerId: true,
         storageProvider: true,
         storageKey: true,
+        thumbKey: true,
+        webpKey: true,
+        avifKey: true,
         originalName: true,
         mimeType: true,
         sizeBytes: true,
@@ -151,10 +173,18 @@ export class MaintenanceService {
     let failed = 0;
     for (const image of images) {
       try {
-        await this.migrateOne(image, dto.targetProvider);
+        const reprocess = dto.reprocess ?? true;
+        const migratedOne = await this.migrateOne(
+          image,
+          dto.targetProvider,
+          reprocess,
+        );
+        if (!migratedOne) {
+          continue;
+        }
         migrated += 1;
 
-        if (dto.reprocess ?? true) {
+        if (reprocess) {
           await this.processingQueue.add('process-image', {
             imageId: image.id,
             storageKey: image.storageKey,
@@ -162,8 +192,11 @@ export class MaintenanceService {
         }
       } catch {
         failed += 1;
-        await this.prisma.image.update({
-          where: { id: image.id },
+        await this.prisma.image.updateMany({
+          where: {
+            id: image.id,
+            status: { not: ImageStatus.DELETED },
+          },
           data: { status: ImageStatus.FAILED },
         });
       }
@@ -188,11 +221,15 @@ export class MaintenanceService {
       ownerId: string;
       storageProvider: StorageProvider;
       storageKey: string;
+      thumbKey: string | null;
+      webpKey: string | null;
+      avifKey: string | null;
       originalName: string;
       mimeType: string;
       sizeBytes: bigint;
     },
     targetProvider: StorageProvider,
+    reprocess: boolean,
   ) {
     const runtimeSetting = await this.settings.getRuntime(image.ownerId);
     const sourceSetting = {
@@ -213,32 +250,90 @@ export class MaintenanceService {
       );
     }
 
-    await this.storage.putObject({
+    const copiedKeys: string[] = [];
+    await this.copyObjectToTarget({
       key: image.storageKey,
-      body: buffer,
       contentType:
         image.mimeType ||
         lookup(image.originalName) ||
         'application/octet-stream',
-      setting: targetSetting,
+      sourceSetting,
+      targetSetting,
     });
+    copiedKeys.push(image.storageKey);
 
-    await this.prisma.image.update({
-      where: { id: image.id },
+    if (!reprocess) {
+      for (const variant of [
+        { key: image.thumbKey, contentType: 'image/webp' },
+        { key: image.webpKey, contentType: 'image/webp' },
+        { key: image.avifKey, contentType: 'image/avif' },
+      ]) {
+        if (!variant.key) {
+          continue;
+        }
+
+        await this.copyObjectToTarget({
+          key: variant.key,
+          contentType: variant.contentType,
+          sourceSetting,
+          targetSetting,
+        });
+        copiedKeys.push(variant.key);
+      }
+    }
+
+    const updated = await this.prisma.image.updateMany({
+      where: {
+        id: image.id,
+        status: { not: ImageStatus.DELETED },
+        uploadedAt: { not: null },
+      },
       data: {
         storageProvider: targetSetting.storageProvider,
         publicUrl: this.storage.getPublicUrlWithBase(
           image.storageKey,
           targetSetting,
         ),
-        thumbKey: null,
-        thumbUrl: null,
-        webpKey: null,
-        webpUrl: null,
-        avifKey: null,
-        avifUrl: null,
-        status: ImageStatus.PROCESSING,
+        ...(reprocess
+          ? {
+              thumbKey: null,
+              thumbUrl: null,
+              webpKey: null,
+              webpUrl: null,
+              avifKey: null,
+              avifUrl: null,
+              status: ImageStatus.PROCESSING,
+            }
+          : {}),
       },
+    });
+
+    if (updated.count !== 1) {
+      await Promise.allSettled(
+        copiedKeys.map((key) => this.storage.deleteObject(key, targetSetting)),
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  private async copyObjectToTarget(input: {
+    key: string;
+    contentType: string;
+    sourceSetting: RuntimeUploadSetting & { storageProvider: StorageProvider };
+    targetSetting: RuntimeUploadSetting & { storageProvider: StorageProvider };
+  }) {
+    const buffer = await this.storage.getObjectBuffer(
+      input.key,
+      input.sourceSetting,
+    );
+
+    await this.storage.putObject({
+      key: input.key,
+      body: buffer,
+      contentType: input.contentType,
+      setting: input.targetSetting,
     });
   }
 

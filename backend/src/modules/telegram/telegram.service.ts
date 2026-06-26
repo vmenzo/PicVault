@@ -1002,15 +1002,6 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     return data.result;
   }
 
-  private absoluteUrl(value?: string | null, setting?: TelegramUrlSetting) {
-    if (!value) return '';
-    try {
-      return new URL(value, this.publicAppUrl(setting)).toString();
-    } catch {
-      return value;
-    }
-  }
-
   private shareUrl(imageId: string, setting?: TelegramUrlSetting) {
     return new URL(`/s/${imageId}`, this.publicAppUrl(setting)).toString();
   }
@@ -1205,13 +1196,37 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   private isPrivateHost(hostname: string) {
     const normalized = hostname.toLowerCase();
+    const mappedIpv4 = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/)?.[1];
+    if (mappedIpv4) {
+      return this.isPrivateHost(mappedIpv4);
+    }
+
+    if (normalized.startsWith('::ffff:')) {
+      return true;
+    }
+
     if (
       normalized === 'localhost' ||
       normalized === '127.0.0.1' ||
+      normalized === '0.0.0.0' ||
       normalized === '::1' ||
+      normalized === '::' ||
       normalized.endsWith('.local')
     ) {
       return true;
+    }
+
+    if (normalized.includes(':')) {
+      return (
+        normalized.startsWith('fc') ||
+        normalized.startsWith('fd') ||
+        normalized.startsWith('fe8') ||
+        normalized.startsWith('fe9') ||
+        normalized.startsWith('fea') ||
+        normalized.startsWith('feb') ||
+        normalized.startsWith('ff') ||
+        normalized.startsWith('2001:db8:')
+      );
     }
 
     const parts = normalized.split('.').map((part) => Number(part));
@@ -1221,10 +1236,16 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     const [first, second] = parts;
     return (
+      first === 0 ||
       first === 10 ||
       first === 127 ||
+      (first === 100 && second >= 64 && second <= 127) ||
+      (first === 169 && second === 254) ||
       (first === 172 && second >= 16 && second <= 31) ||
-      (first === 192 && second === 168)
+      (first === 192 && second === 0) ||
+      (first === 192 && second === 168) ||
+      (first === 198 && (second === 18 || second === 19)) ||
+      first >= 224
     );
   }
 }

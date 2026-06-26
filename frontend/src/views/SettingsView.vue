@@ -11,7 +11,8 @@ import {
   User,
   Wallet,
 } from '@element-plus/icons-vue';
-import { ElMessage, ElMessageBox } from 'element-plus';
+import { ElMessage } from 'element-plus/es/components/message/index';
+import { ElMessageBox } from 'element-plus/es/components/message-box/index';
 import { changePasswordApi } from '@/api/auth';
 import {
   createApiKeyApi,

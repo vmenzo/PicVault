@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { CopyDocument } from '@element-plus/icons-vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage } from 'element-plus/es/components/message/index';
 import { copyToClipboard } from '@/utils/clipboard';
 
 const url = ref('');

@@ -47,6 +47,7 @@ export type ImageItem = {
   visibility: Visibility;
   views: number;
   downloads: number;
+  uploadedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   album?: Pick<Album, 'id' | 'name'>;
