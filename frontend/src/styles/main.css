@@ -1365,10 +1365,23 @@ button {
     font-size: 14px;
   }
 
+  body,
+  #app,
+  .app-shell,
+  .app-shell > .el-container {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .app-shell {
+    min-height: 100svh;
+  }
+
   .app-header {
     overflow: visible;
     min-height: auto;
-    padding: 12px;
+    gap: 10px;
+    padding: 10px 12px;
   }
 
   .app-header h1 {
@@ -1388,11 +1401,17 @@ button {
   }
 
   .header-title {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
     align-items: center;
+    gap: 10px;
   }
 
   .mobile-menu-button {
     flex: 0 0 auto;
+    width: 36px;
+    height: 36px;
+    padding: 0;
   }
 
   .app-header > .header-actions .el-button span {
@@ -1401,14 +1420,14 @@ button {
 
   .app-header > .header-actions {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr) 38px 38px 38px;
     gap: 8px;
     align-items: stretch;
     min-width: 0;
   }
 
   .app-header > .header-actions .global-search {
-    grid-column: 1 / -1;
+    grid-column: auto;
     min-width: 0;
   }
 
@@ -1437,10 +1456,13 @@ button {
 
   .app-header > .header-actions .el-dropdown {
     min-width: 0;
+    width: 100%;
   }
 
   .app-main {
-    padding: 12px 12px 28px;
+    padding: 12px max(12px, env(safe-area-inset-right))
+      calc(28px + env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
   }
 
   .page-stack {
@@ -1483,8 +1505,12 @@ button {
 
   .metrics-grid,
   .quick-action-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  .metric-card .el-card__body {
+    min-width: 0;
   }
 
   .metric-card strong {
@@ -1497,15 +1523,22 @@ button {
   }
 
   .toolbar {
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: stretch;
   }
 
   .toolbar .el-button,
   .toolbar .el-input,
-  .toolbar .el-select {
+  .toolbar .el-select,
+  .toolbar .el-segmented {
     min-width: 0;
     width: 100%;
+  }
+
+  .toolbar-search,
+  .library-toolbar .el-segmented {
+    grid-column: 1 / -1;
   }
 
   .page-actions {
@@ -1529,6 +1562,19 @@ button {
   .bulk-actions {
     align-items: stretch;
     flex-direction: column;
+    width: 100%;
+  }
+
+  .bulk-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bulk-actions .el-button,
+  .bulk-actions .el-dropdown,
+  .bulk-actions .el-dropdown .el-button {
+    width: 100%;
+    min-width: 0;
   }
 
   .bulk-actions .el-button,
@@ -1543,17 +1589,16 @@ button {
   .settings-toggles,
   .settings-toggles.dense,
   .form-grid.two,
-  .remote-import.compact,
-  .queue-item {
+  .remote-import.compact {
     grid-template-columns: 1fr;
   }
 
   .share-page {
-    padding: 16px;
+    padding: 12px;
   }
 
   .image-grid {
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
 
@@ -1563,9 +1608,16 @@ button {
     gap: 6px;
   }
 
+  .image-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .image-actions .el-button {
-    flex: 1 1 100%;
+    width: 100%;
     min-width: 0;
+    padding-right: 8px;
+    padding-left: 8px;
   }
 
   .image-actions .el-button span {
@@ -1582,11 +1634,12 @@ button {
 
   .queue-item {
     align-items: stretch;
+    grid-template-columns: 34px minmax(0, 1fr);
   }
 
   .queue-state {
-    width: 100%;
-    height: 32px;
+    width: 34px;
+    height: 34px;
   }
 
   .queue-title {
@@ -1596,7 +1649,9 @@ button {
 
   .queue-actions {
     align-items: stretch;
-    flex-direction: column;
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .queue-actions .el-button {
@@ -1690,6 +1745,16 @@ button {
 
   .clean-table {
     overflow-x: auto;
+    min-width: 720px;
+  }
+
+  .admin-table {
+    min-width: 1080px;
+  }
+
+  .panel-card .el-card__body:has(.clean-table) {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .el-table {
@@ -1700,8 +1765,19 @@ button {
     white-space: nowrap;
   }
 
-  .el-drawer {
-    max-width: 86vw;
+  .el-drawer.rtl {
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px);
+  }
+
+  .el-drawer.ltr {
+    width: min(312px, calc(100vw - 16px)) !important;
+    max-width: calc(100vw - 16px);
+  }
+
+  .el-drawer__body {
+    overflow-x: hidden;
+    padding: 12px;
   }
 
   .el-dialog {
@@ -1709,17 +1785,23 @@ button {
     max-width: calc(100vw - 24px);
   }
 
+  .el-message-box {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px);
+  }
+
   .login-panel,
   .login-visual {
-    padding: 24px;
+    padding: 22px;
   }
 
   .login-visual {
-    gap: 22px;
+    gap: 18px;
   }
 
   .login-copy h1 {
-    font-size: 32px;
+    margin-top: 12px;
+    font-size: 28px;
   }
 
   .login-copy p {
@@ -1728,11 +1810,14 @@ button {
   }
 
   .login-benefits {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
   }
 
   .login-benefits span {
     padding: 6px 9px;
+    text-align: center;
   }
 
   .login-card-head h2 {
@@ -1744,15 +1829,32 @@ button {
   }
 
   .share-preview {
-    min-height: 260px;
+    min-height: 220px;
   }
 
   .share-panel {
-    padding: 16px;
+    padding: 14px;
   }
 
   .share-panel h1 {
     font-size: 20px;
+  }
+
+  .share-actions,
+  .drawer-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .share-actions .el-button,
+  .drawer-actions .el-button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .created-key {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .quick-action strong,
