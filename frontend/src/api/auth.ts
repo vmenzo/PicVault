@@ -12,10 +12,14 @@ export function loginApi(payload: { email: string; password: string }) {
 
 export function registerApi(payload: {
   email: string;
-  name: string;
   password: string;
+  verificationCode: string;
 }) {
   return http.post<unknown, AuthResponse>('/auth/register', payload);
+}
+
+export function requestRegistrationCodeApi(payload: { email: string }) {
+  return http.post<unknown, { ok: boolean }>('/auth/registration-code', payload);
 }
 
 export function registrationStatusApi() {

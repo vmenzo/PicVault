@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcryptjs';
-import { createHash } from 'node:crypto';
+import { createHash, randomInt } from 'node:crypto';
 import { Request } from 'express';
 import { Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -18,6 +18,7 @@ import { formatUserPublicId } from '../../common/public-id';
 import { generateOpaqueToken } from '../../common/tokens';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { RequestRegistrationCodeDto } from './dto/request-registration-code.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import {
@@ -39,8 +40,77 @@ export class AuthService {
     private readonly settings: SettingsService,
   ) {}
 
+  async requestRegistrationCode(
+    dto: RequestRegistrationCodeDto,
+    request: Request,
+  ) {
+    const email = dto.email.toLowerCase().trim();
+    const existing = await this.prisma.user.findUnique({
+      where: { email },
+      select: { id: true },
+    });
+
+    if (existing) {
+      throw new ConflictException('Email is already registered');
+    }
+
+    const recentCount = await this.prisma.emailVerificationCode.count({
+      where: {
+        email,
+        purpose: 'register',
+        createdAt: {
+          gte: new Date(Date.now() - 15 * 60 * 1000),
+        },
+      },
+    });
+
+    if (recentCount >= 3) {
+      throw new BadRequestException('Verification code requested too often');
+    }
+
+    await this.prisma.emailVerificationCode.updateMany({
+      where: {
+        email,
+        purpose: 'register',
+        usedAt: null,
+        expiresAt: {
+          gt: new Date(),
+        },
+      },
+      data: {
+        usedAt: new Date(),
+      },
+    });
+
+    const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
+    const expiresMinutes = Number(
+      this.config.get<string>('REGISTRATION_CODE_EXPIRES_MINUTES') ?? 10,
+    );
+    const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000);
+
+    await this.prisma.emailVerificationCode.create({
+      data: {
+        email,
+        codeHash: this.hashVerificationCode(email, code),
+        purpose: 'register',
+        expiresAt,
+        ip: this.ip(request),
+        userAgent: request.headers['user-agent'],
+      },
+    });
+
+    await this.mail.sendRegistrationCode({
+      to: email,
+      code,
+      expiresMinutes,
+    });
+
+    return { ok: true };
+  }
+
   async register(dto: RegisterDto) {
     const email = dto.email.toLowerCase().trim();
+    await this.verifyRegistrationCode(email, dto.verificationCode);
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const defaultQuotaBytes = await this.getDefaultQuotaBytes();
 
@@ -60,7 +130,7 @@ export class AuthService {
             return tx.user.create({
               data: {
                 email,
-                name: dto.name,
+                name: this.defaultName(email),
                 passwordHash,
                 role: userCount === 0 ? UserRole.ADMIN : UserRole.USER,
                 quotaBytes: defaultQuotaBytes,
@@ -420,6 +490,41 @@ export class AuthService {
 
   private hashToken(token: string) {
     return createHash('sha256').update(token).digest('hex');
+  }
+
+  private hashVerificationCode(email: string, code: string) {
+    return createHash('sha256').update(`${email}:${code}`).digest('hex');
+  }
+
+  private async verifyRegistrationCode(email: string, code: string) {
+    const now = new Date();
+    const token = await this.prisma.emailVerificationCode.findFirst({
+      where: {
+        email,
+        purpose: 'register',
+        codeHash: this.hashVerificationCode(email, code.trim()),
+        usedAt: null,
+        expiresAt: {
+          gt: now,
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!token) {
+      throw new BadRequestException('Verification code is invalid or expired');
+    }
+
+    await this.prisma.emailVerificationCode.update({
+      where: { id: token.id },
+      data: { usedAt: now },
+    });
+  }
+
+  private defaultName(email: string) {
+    const prefix = email.split('@')[0] || 'user';
+    const cleaned = prefix.replace(/[^a-zA-Z0-9_.-]/g, '').slice(0, 32);
+    return cleaned.length >= 2 ? cleaned : `${cleaned || 'user'}_user`;
   }
 
   private async buildResetUrl(request: Request, token: string) {

@@ -77,6 +77,40 @@ export class MailService {
     return true;
   }
 
+  async sendRegistrationCode(input: {
+    to: string;
+    code: string;
+    expiresMinutes: number;
+  }) {
+    const settings = await this.getEffectiveSettings();
+    if (!settings) {
+      throw new BadRequestException('SMTP is not configured');
+    }
+
+    await this.send(settings, {
+      to: input.to,
+      subject: 'PicVault 注册验证码',
+      text: [
+        '你好：',
+        '',
+        '你正在注册 PicVault 账户。',
+        `验证码：${input.code}`,
+        `验证码 ${input.expiresMinutes} 分钟内有效。`,
+        '',
+        '如果不是你本人操作，请忽略这封邮件。',
+      ].join('\n'),
+      html: [
+        '<p>你好：</p>',
+        '<p>你正在注册 PicVault 账户。</p>',
+        `<p>验证码：<strong style="font-size:20px;letter-spacing:2px">${this.escape(input.code)}</strong></p>`,
+        `<p>验证码 ${input.expiresMinutes} 分钟内有效。</p>`,
+        '<p>如果不是你本人操作，请忽略这封邮件。</p>',
+      ].join(''),
+    });
+
+    return true;
+  }
+
   async sendTest(to: string) {
     const settings = await this.getEffectiveSettings();
     if (!settings) {

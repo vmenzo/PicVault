@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { FormInstance, FormRules } from 'element-plus';
 import { ElMessage } from 'element-plus/es/components/message/index';
-import { Grid, Key, Lock, Message, User } from '@element-plus/icons-vue';
+import { Grid, Key, Lock, Message } from '@element-plus/icons-vue';
 import {
   registrationStatusApi,
+  requestRegistrationCodeApi,
   requestPasswordResetApi,
   resetPasswordApi,
 } from '@/api/auth';
@@ -18,13 +19,16 @@ const router = useRouter();
 const auth = useAuthStore();
 const formRef = ref<FormInstance>();
 const loading = ref(false);
+const sendingCode = ref(false);
+const codeCooldown = ref(0);
+let codeTimer: number | undefined;
 const mode = ref<AuthMode>('login');
 const allowRegister = import.meta.env.VITE_ALLOW_REGISTER === 'true';
 const firstUser = ref(false);
 const form = reactive({
   email: '',
-  name: '',
   password: '',
+  verificationCode: '',
   newPassword: '',
 });
 
@@ -65,12 +69,13 @@ const rules = computed<FormRules>(() => ({
     },
     { type: 'email', message: '邮箱格式不正确', trigger: ['blur', 'change'] },
   ],
-  name: [
+  verificationCode: [
     {
       required: mode.value === 'register',
-      message: '请输入名称',
+      message: '请输入邮箱验证码',
       trigger: 'blur',
     },
+    { len: 6, message: '验证码为 6 位', trigger: ['blur', 'change'] },
   ],
   password: [
     {
@@ -101,6 +106,10 @@ onMounted(() => {
   void loadRegistrationStatus();
 });
 
+onUnmounted(() => {
+  if (codeTimer) window.clearInterval(codeTimer);
+});
+
 async function loadRegistrationStatus() {
   if (!allowRegister) return;
 
@@ -128,8 +137,8 @@ async function submit() {
     if (mode.value === 'register') {
       await auth.register({
         email: form.email,
-        name: form.name,
         password: form.password,
+        verificationCode: form.verificationCode,
       });
       ElMessage.success('已进入控制台');
       router.push('/dashboard');
@@ -161,9 +170,38 @@ async function submit() {
   }
 }
 
+async function sendRegistrationCode() {
+  if (!form.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+    ElMessage.warning('请先输入正确的邮箱');
+    return;
+  }
+
+  sendingCode.value = true;
+  try {
+    await requestRegistrationCodeApi({ email: form.email });
+    ElMessage.success('验证码已发送');
+    startCodeCooldown();
+  } finally {
+    sendingCode.value = false;
+  }
+}
+
+function startCodeCooldown() {
+  codeCooldown.value = 60;
+  if (codeTimer) window.clearInterval(codeTimer);
+  codeTimer = window.setInterval(() => {
+    codeCooldown.value -= 1;
+    if (codeCooldown.value <= 0 && codeTimer) {
+      window.clearInterval(codeTimer);
+      codeTimer = undefined;
+    }
+  }, 1000);
+}
+
 function setMode(nextMode: AuthMode) {
   mode.value = nextMode;
   form.password = '';
+  form.verificationCode = '';
   form.newPassword = '';
   formRef.value?.clearValidate();
 
@@ -236,18 +274,6 @@ function switchRegister() {
             </el-input>
           </el-form-item>
 
-          <el-form-item v-if="mode === 'register'" label="名称" prop="name">
-            <el-input
-              v-model.trim="form.name"
-              size="large"
-              autocomplete="name"
-            >
-              <template #prefix>
-                <el-icon><User /></el-icon>
-              </template>
-            </el-input>
-          </el-form-item>
-
           <el-form-item v-if="needsPassword" label="密码" prop="password">
             <el-input
               v-model="form.password"
@@ -258,6 +284,32 @@ function switchRegister() {
             >
               <template #prefix>
                 <el-icon><Lock /></el-icon>
+              </template>
+            </el-input>
+          </el-form-item>
+
+          <el-form-item
+            v-if="mode === 'register'"
+            label="邮箱验证码"
+            prop="verificationCode"
+          >
+            <el-input
+              v-model.trim="form.verificationCode"
+              size="large"
+              autocomplete="one-time-code"
+              maxlength="6"
+            >
+              <template #prefix>
+                <el-icon><Key /></el-icon>
+              </template>
+              <template #append>
+                <el-button
+                  :loading="sendingCode"
+                  :disabled="codeCooldown > 0"
+                  @click="sendRegistrationCode"
+                >
+                  {{ codeCooldown > 0 ? `${codeCooldown}s` : '发送验证码' }}
+                </el-button>
               </template>
             </el-input>
           </el-form-item>

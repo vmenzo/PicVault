@@ -52,6 +52,7 @@ model User {
   setting AppSetting?
   auditLogs AuditLog[]
   passwordResetTokens PasswordResetToken[]
+  emailVerificationCodes EmailVerificationCode[]
   sessions AuthSession[]
 }
 
@@ -174,6 +175,24 @@ model PasswordResetToken {
   createdAt DateTime @default(now())
 
   @@index([userId])
+  @@index([expiresAt])
+  @@index([createdAt])
+}
+
+model EmailVerificationCode {
+  id        String   @id @default(cuid())
+  email     String
+  codeHash  String
+  purpose   String
+  expiresAt DateTime
+  usedAt    DateTime?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email, purpose])
   @@index([expiresAt])
   @@index([createdAt])
 }

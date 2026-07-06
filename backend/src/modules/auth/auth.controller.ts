@@ -20,6 +20,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { RequestRegistrationCodeDto } from './dto/request-registration-code.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import {
   RequestPasswordResetDto,
@@ -56,6 +57,18 @@ export class AuthController {
     }
 
     return this.auth.register(dto);
+  }
+
+  @Post('registration-code')
+  requestRegistrationCode(
+    @Body() dto: RequestRegistrationCodeDto,
+    @Req() request: Request,
+  ) {
+    if (this.config.get<string>('ALLOW_REGISTER') !== 'true') {
+      throw new ForbiddenException('Registration is disabled');
+    }
+
+    return this.auth.requestRegistrationCode(dto, request);
   }
 
   @Post('login')
