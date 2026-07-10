@@ -14,6 +14,7 @@ import type { Album, StorageProvider, Visibility } from '@/api/types';
 
 const auth = useAuthStore();
 const loading = ref(false);
+const activeSection = ref('storage');
 const saving = ref(false);
 const testingStorage = ref(false);
 const testingEmail = ref(false);
@@ -59,6 +60,8 @@ const security = reactive({
   hotlinkProtection: false,
   uploadAudit: false,
   apiUpload: true,
+  registrationEnabled: false,
+  trashRetentionDays: 30,
 });
 
 const telegram = reactive({
@@ -157,6 +160,8 @@ async function load() {
     security.hotlinkProtection = data.hotlinkProtection;
     security.uploadAudit = data.uploadAudit;
     security.apiUpload = data.apiUpload;
+    security.registrationEnabled = data.registrationEnabled;
+    security.trashRetentionDays = data.trashRetentionDays;
     site.appPublicUrl = data.appPublicUrl || currentOrigin;
     telegram.enabled = data.telegramBotEnabled;
     telegram.token = data.telegramBotToken || '';
@@ -209,6 +214,8 @@ async function save() {
       hotlinkProtection: security.hotlinkProtection,
       uploadAudit: security.uploadAudit,
       apiUpload: security.apiUpload,
+      registrationEnabled: security.registrationEnabled,
+      trashRetentionDays: security.trashRetentionDays,
       telegramBotEnabled: telegram.enabled,
       telegramBotToken: telegram.token || null,
       telegramAllowedChatIds: telegram.allowedChatIdsText
@@ -280,12 +287,20 @@ onMounted(load);
 <template>
   <div class="page-stack" v-loading="loading">
     <div class="page-actions">
+      <el-segmented
+        v-model="activeSection"
+        :options="[
+          { label: '存储与上传', value: 'storage' },
+          { label: '集成服务', value: 'integrations' },
+          { label: '安全与邮件', value: 'security' },
+        ]"
+      />
       <el-button type="primary" :loading="saving" @click="handleSaveClick"
         >保存全部配置</el-button
       >
     </div>
 
-    <section class="settings-grid wide">
+    <section v-show="activeSection === 'storage'" class="settings-grid wide">
       <el-card shadow="never" class="panel-card">
         <template #header>
           <div class="panel-head">
@@ -301,6 +316,13 @@ onMounted(load);
                 { label: '第三方对象存储', value: 'S3' },
                 { label: '本机存储', value: 'LOCAL' },
               ]"
+            />
+          </el-form-item>
+          <el-form-item label="回收站保留天数">
+            <el-input-number
+              v-model="security.trashRetentionDays"
+              :min="0"
+              :max="3650"
             />
           </el-form-item>
           <el-form-item
@@ -443,7 +465,10 @@ onMounted(load);
       </el-card>
     </section>
 
-    <section class="settings-grid wide">
+    <section
+      v-show="activeSection === 'integrations'"
+      class="settings-grid wide"
+    >
       <el-card shadow="never" class="panel-card">
         <template #header>
           <div class="panel-head">
@@ -508,7 +533,7 @@ onMounted(load);
       <el-card shadow="never" class="panel-card">
         <template #header>
           <div class="panel-head">
-            <strong>图片处理与安全</strong>
+            <strong>图片处理</strong>
           </div>
         </template>
         <div class="settings-toggles dense">
@@ -538,7 +563,7 @@ onMounted(load);
       </el-card>
     </section>
 
-    <section class="settings-grid wide">
+    <section v-show="activeSection === 'security'" class="settings-grid wide">
       <el-card shadow="never" class="panel-card">
         <template #header>
           <div class="panel-head">
@@ -599,9 +624,18 @@ onMounted(load);
       <el-card shadow="never" class="panel-card">
         <template #header>
           <div class="panel-head">
-            <strong>密码重置安全策略</strong>
+            <strong>用户与安全</strong>
           </div>
         </template>
+        <el-form label-position="top">
+          <el-form-item label="用户注册">
+            <el-switch
+              v-model="security.registrationEnabled"
+              active-text="已开启"
+              inactive-text="已关闭"
+            />
+          </el-form-item>
+        </el-form>
         <div class="policy-list">
           <span>重置链接 30 分钟有效</span>
           <span>Token 只保存哈希且一次性使用</span>

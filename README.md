@@ -43,6 +43,16 @@ curl -fsSL https://raw.githubusercontent.com/vmenzo/PicVault/main/scripts/instal
 
 默认访问地址：`http://服务器IP:7899`
 
+生产环境使用反向代理时，可通过 `.env` 的 `APP_BIND_ADDRESS` 将端口限制在回环地址或 Docker 网桥地址，避免绕过 HTTPS 直接访问。例如 Nginx Proxy Manager 运行在默认 Docker 网桥时：
+
+```env
+APP_BIND_ADDRESS=172.17.0.1
+TRUST_PROXY_HEADERS=true
+ENABLE_HSTS=true
+```
+
+新用户注册默认关闭。管理员可以在“控制中心 → 图片处理与安全”中随时开启或关闭，保存后立即生效。
+
 第一个注册用户自动成为管理员。
 
 ## 手动部署

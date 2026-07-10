@@ -1,0 +1,2 @@
+ALTER TABLE "AppSetting"
+ADD COLUMN "trashRetentionDays" INTEGER NOT NULL DEFAULT 30;

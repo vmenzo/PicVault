@@ -40,6 +40,10 @@ export class AuthService {
     private readonly settings: SettingsService,
   ) {}
 
+  registrationEnabled() {
+    return this.settings.isRegistrationEnabled();
+  }
+
   async requestRegistrationCode(
     dto: RequestRegistrationCodeDto,
     request: Request,

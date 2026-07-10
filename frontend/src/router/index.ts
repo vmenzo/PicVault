@@ -92,7 +92,7 @@ export const router = createRouter({
           name: 'control',
           component: () => import('@/views/ControlCenterView.vue'),
           meta: {
-            title: '控制中心',
+            title: '站点设置',
             subtitle: '配置存储驱动、上传策略、处理流程和 Telegram Bot',
             adminOnly: true,
           },
@@ -112,7 +112,7 @@ export const router = createRouter({
           name: 'admin',
           component: () => import('@/views/AdminView.vue'),
           meta: {
-            title: '管理中心',
+            title: '用户与维护',
             subtitle: '管理用户、审计日志、维护任务和 Bot 运行状态',
             adminOnly: true,
           },

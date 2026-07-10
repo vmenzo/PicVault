@@ -114,6 +114,8 @@ export class SettingsService {
       hotlinkProtection: setting?.hotlinkProtection ?? false,
       uploadAudit: setting?.uploadAudit ?? false,
       apiUpload: setting?.apiUpload ?? true,
+      registrationEnabled: setting?.registrationEnabled ?? false,
+      trashRetentionDays: setting?.trashRetentionDays ?? 30,
       telegramBotEnabled: setting?.telegramBotEnabled ?? false,
       telegramBotToken: setting?.telegramBotToken ?? null,
       telegramAllowedChatIds: setting?.telegramAllowedChatIds ?? [],
@@ -175,6 +177,15 @@ export class SettingsService {
     );
   }
 
+  async isRegistrationEnabled() {
+    const setting = await this.prisma.appSetting.findFirst({
+      where: { owner: { role: UserRole.ADMIN, disabled: false } },
+      orderBy: { updatedAt: 'desc' },
+      select: { registrationEnabled: true },
+    });
+    return setting?.registrationEnabled ?? false;
+  }
+
   private toData(): Prisma.AppSettingUncheckedUpdateInput;
   private toData(
     dto: UpdateAppSettingDto,
@@ -228,6 +239,12 @@ export class SettingsService {
     }
     if (dto.uploadAudit !== undefined) data.uploadAudit = dto.uploadAudit;
     if (dto.apiUpload !== undefined) data.apiUpload = dto.apiUpload;
+    if (dto.registrationEnabled !== undefined) {
+      data.registrationEnabled = dto.registrationEnabled;
+    }
+    if (dto.trashRetentionDays !== undefined) {
+      data.trashRetentionDays = dto.trashRetentionDays;
+    }
     if (dto.telegramBotEnabled !== undefined) {
       data.telegramBotEnabled = dto.telegramBotEnabled;
     }
@@ -283,6 +300,8 @@ export class SettingsService {
     hotlinkProtection: boolean;
     uploadAudit: boolean;
     apiUpload: boolean;
+    registrationEnabled: boolean;
+    trashRetentionDays: number;
     telegramBotEnabled: boolean;
     telegramBotToken: string | null;
     telegramAllowedChatIds: string[];

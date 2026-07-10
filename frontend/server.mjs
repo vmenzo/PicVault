@@ -12,6 +12,7 @@ const host = process.env.HOST ?? '127.0.0.1';
 const backendHost = process.env.BACKEND_HOST ?? '127.0.0.1';
 const backendPort = Number(process.env.BACKEND_PORT ?? 3000);
 const enableHsts = process.env.ENABLE_HSTS === 'true';
+const trustProxyHeaders = process.env.TRUST_PROXY_HEADERS === 'true';
 const frameAncestors = process.env.FRAME_ANCESTORS === 'self'
   ? "'self'"
   : process.env.FRAME_ANCESTORS ?? "'self'";
@@ -79,6 +80,13 @@ function appendForwardedFor(current, remoteAddress) {
   return [value, remoteAddress].filter(Boolean).join(', ');
 }
 
+function forwardedFor(headers, remoteAddress) {
+  if (!trustProxyHeaders) {
+    return remoteAddress ?? '';
+  }
+  return appendForwardedFor(headers['x-forwarded-for'], remoteAddress);
+}
+
 function isInsideDist(filePath) {
   const relative = path.relative(distDir, filePath);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
@@ -98,7 +106,7 @@ function proxy(req, res, upstreamTarget, options = {}) {
         hostHeader,
         options.keepContentLength,
         ),
-        'x-forwarded-for': appendForwardedFor(req.headers['x-forwarded-for'], req.socket.remoteAddress),
+        'x-forwarded-for': forwardedFor(req.headers, req.socket.remoteAddress),
         'x-forwarded-host': req.headers.host ?? hostHeader,
         'x-forwarded-proto': req.headers['x-forwarded-proto'] ?? 'http',
       },

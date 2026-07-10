@@ -98,6 +98,8 @@ export type AppSetting = {
   hotlinkProtection: boolean;
   uploadAudit: boolean;
   apiUpload: boolean;
+  registrationEnabled: boolean;
+  trashRetentionDays: number;
   telegramBotEnabled: boolean;
   telegramBotToken?: string | null;
   telegramAllowedChatIds: string[];

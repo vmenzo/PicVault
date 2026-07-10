@@ -125,7 +125,9 @@ onMounted(load);
         </div>
         <div>
           <span>图床占用</span>
-          <strong>{{ formatBytes(health?.services.disk.usedBytes ?? 0) }}</strong>
+          <strong>{{
+            formatBytes(health?.services.disk.usedBytes ?? 0)
+          }}</strong>
         </div>
       </el-card>
     </section>
@@ -191,7 +193,11 @@ onMounted(load);
               {{ statusLabel(health?.services.disk.status) }}
             </el-tag>
             {{ health?.services.disk.path }}，
-            {{ health?.services.disk.scope === 'local-storage' ? '本地存储目录' : '图片记录合计' }}
+            {{
+              health?.services.disk.scope === 'local-storage'
+                ? '本地存储目录'
+                : '图片记录合计'
+            }}
             {{ formatBytes(health?.services.disk.usedBytes ?? 0) }}
             <template v-if="health?.services.disk.message">
               {{ health.services.disk.message }}

@@ -38,6 +38,8 @@ export function updateAppSettingApi(payload: {
   hotlinkProtection?: boolean;
   uploadAudit?: boolean;
   apiUpload?: boolean;
+  registrationEnabled?: boolean;
+  trashRetentionDays?: number;
   telegramBotEnabled?: boolean;
   telegramBotToken?: string | null;
   telegramAllowedChatIds?: string[];

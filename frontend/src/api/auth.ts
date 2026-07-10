@@ -19,11 +19,17 @@ export function registerApi(payload: {
 }
 
 export function requestRegistrationCodeApi(payload: { email: string }) {
-  return http.post<unknown, { ok: boolean }>('/auth/registration-code', payload);
+  return http.post<unknown, { ok: boolean }>(
+    '/auth/registration-code',
+    payload,
+  );
 }
 
 export function registrationStatusApi() {
-  return http.get<unknown, { firstUser: boolean }>('/auth/registration-status');
+  return http.get<
+    unknown,
+    { firstUser: boolean; registrationEnabled: boolean }
+  >('/auth/registration-status');
 }
 
 export function requestPasswordResetApi(payload: { email: string }) {

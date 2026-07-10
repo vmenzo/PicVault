@@ -31,10 +31,7 @@ export class MaintenanceController {
   }
 
   @Post('backup')
-  runBackup(
-    @CurrentUser() user: CurrentUserPayload,
-    @Req() request: Request,
-  ) {
+  runBackup(@CurrentUser() user: CurrentUserPayload, @Req() request: Request) {
     return this.maintenance.runBackup({
       actorId: user.id,
       request,

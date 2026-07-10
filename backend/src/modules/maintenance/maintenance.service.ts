@@ -442,7 +442,9 @@ export class MaintenanceService {
         await Promise.all(
           entries
             .filter((entry) => entry.isDirectory())
-            .map((entry) => this.backupSnapshot(path.join(backupDir, entry.name))),
+            .map((entry) =>
+              this.backupSnapshot(path.join(backupDir, entry.name)),
+            ),
         )
       ).filter(Boolean) as BackupSnapshot[];
       backups.sort((a, b) => b.name.localeCompare(a.name));
@@ -563,7 +565,9 @@ export class MaintenanceService {
 
     const snapshot = await this.backupSnapshot(destination);
     if (!snapshot) {
-      throw new InternalServerErrorException('Backup manifest was written but snapshot could not be read');
+      throw new InternalServerErrorException(
+        'Backup manifest was written but snapshot could not be read',
+      );
     }
     return snapshot;
   }

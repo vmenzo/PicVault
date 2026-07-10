@@ -147,6 +147,8 @@ model AppSetting {
   hotlinkProtection      Boolean         @default(false)
   uploadAudit            Boolean         @default(false)
   apiUpload              Boolean         @default(true)
+  registrationEnabled    Boolean         @default(false)
+  trashRetentionDays     Int             @default(30)
   telegramBotEnabled     Boolean         @default(false)
   telegramBotToken       String?
   telegramAllowedChatIds String[]        @default([])

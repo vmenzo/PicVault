@@ -6,6 +6,7 @@ INSTALL_URL="${PICVAULT_INSTALL_URL:-https://raw.githubusercontent.com/vmenzo/Pi
 INSTALL_DIR="${PICVAULT_INSTALL_DIR:-/opt/picvault}"
 PICVAULT_PORT_INPUT="${PICVAULT_PORT:-}"
 APP_HOST_PORT="${PICVAULT_PORT_INPUT:-7899}"
+APP_BIND_ADDRESS="${APP_BIND_ADDRESS:-0.0.0.0}"
 APP_PUBLIC_URL="${APP_PUBLIC_URL:-}"
 
 log() {
@@ -151,8 +152,10 @@ prepare_env() {
     set_env POSTGRES_PASSWORD "$(random_token)" "$env_file"
     set_env APP_PUBLIC_URL "$public_url" "$env_file"
     set_env APP_HOST_PORT "$APP_HOST_PORT" "$env_file"
-    set_env ALLOW_REGISTER "true" "$env_file"
-    set_env VITE_ALLOW_REGISTER "true" "$env_file"
+    set_env APP_BIND_ADDRESS "$APP_BIND_ADDRESS" "$env_file"
+    set_env ALLOW_REGISTER "false" "$env_file"
+    set_env VITE_ALLOW_REGISTER "false" "$env_file"
+    set_env TRUST_PROXY_HEADERS "false" "$env_file"
   else
     log "Using existing .env"
     if [ -n "$PICVAULT_PORT_INPUT" ]; then

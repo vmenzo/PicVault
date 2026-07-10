@@ -5,22 +5,27 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
-        VITE_ALLOW_REGISTER: ${VITE_ALLOW_REGISTER:-true}
+        VITE_ALLOW_REGISTER: ${VITE_ALLOW_REGISTER:-false}
     image: picvault-frontend:local
     container_name: picvault-frontend
     restart: unless-stopped
     environment:
       NODE_ENV: production
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
-      VITE_ALLOW_REGISTER: ${VITE_ALLOW_REGISTER:-true}
+      VITE_ALLOW_REGISTER: ${VITE_ALLOW_REGISTER:-false}
       HOST: 0.0.0.0
       PORT: 7899
       BACKEND_HOST: backend
       BACKEND_PORT: 3000
       ENABLE_HSTS: ${ENABLE_HSTS:-false}
       FRAME_ANCESTORS: ${FRAME_ANCESTORS:-self}
+      TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
     ports:
-      - "${APP_HOST_PORT:-7899}:7899"
+      - "${APP_BIND_ADDRESS:-0.0.0.0}:${APP_HOST_PORT:-7899}:7899"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     depends_on:
       backend:
         condition: service_started
@@ -29,7 +34,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-
   backend:
     build:
       context: .
@@ -49,7 +53,7 @@ services:
       LOCAL_STORAGE_PATH: /app/backend/storage
       CORS_ORIGIN: http://localhost:7899,http://127.0.0.1:7899
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
-      ALLOW_REGISTER: ${ALLOW_REGISTER:-true}
+      ALLOW_REGISTER: ${ALLOW_REGISTER:-false}
       TRUST_PROXY: ${TRUST_PROXY:-loopback, linklocal, uniquelocal}
       ENABLE_HSTS: ${ENABLE_HSTS:-false}
       FRAME_ANCESTORS: ${FRAME_ANCESTORS:-self}
@@ -70,6 +74,10 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
   postgres:
     image: postgres:16-alpine

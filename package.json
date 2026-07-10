@@ -9,7 +9,7 @@
   "scripts": {
     "dev:frontend": "npm run dev -w frontend",
     "dev:backend": "npm run start:dev -w backend",
-    "build": "npm run build -w backend && npm run build -w frontend",
+    "build": "npm run prisma:generate -w backend && npm run build -w backend && npm run build -w frontend",
     "lint": "npm run lint -w backend && npm run lint -w frontend",
     "format": "npm run format -w backend && npm run format -w frontend"
   },

@@ -16,7 +16,7 @@ import {
   Tools,
   UploadFilled,
 } from '@element-plus/icons-vue';
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { ElMessage } from 'element-plus/es/components/message/index';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
@@ -26,6 +26,7 @@ const router = useRouter();
 const auth = useAuthStore();
 const mobileNavVisible = ref(false);
 const globalQuery = ref('');
+const globalSearchRef = ref<{ focus: () => void }>();
 
 const navItems = [
   { path: '/dashboard', label: '总览', icon: House, group: '资产' },
@@ -37,7 +38,7 @@ const navItems = [
   { path: '/tools', label: '图片工具箱', icon: Tools, group: '工具' },
   {
     path: '/control',
-    label: '控制中心',
+    label: '站点设置',
     icon: SetUp,
     group: '系统',
     adminOnly: true,
@@ -51,7 +52,7 @@ const navItems = [
   },
   {
     path: '/admin',
-    label: '管理中心',
+    label: '用户与维护',
     icon: Key,
     group: '系统',
     adminOnly: true,
@@ -86,6 +87,16 @@ function submitGlobalSearch() {
     query: { q },
   });
 }
+
+function handleShortcut(event: KeyboardEvent) {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    globalSearchRef.value?.focus();
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', handleShortcut));
+onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
 
 watch(
   () => route.fullPath,
@@ -166,6 +177,7 @@ function handleUserCommand(command: string) {
         </div>
         <div class="header-actions">
           <el-input
+            ref="globalSearchRef"
             v-model="globalQuery"
             class="global-search"
             placeholder="搜索图片、标签、文件名"
@@ -175,6 +187,7 @@ function handleUserCommand(command: string) {
             <template #prefix>
               <el-icon><Search /></el-icon>
             </template>
+            <template #suffix><kbd class="search-shortcut">⌘K</kbd></template>
           </el-input>
           <el-button :icon="Link" @click="router.push('/links')">
             链接

@@ -26,13 +26,14 @@ import {
 } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
+import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import {
   StorageRuntimeConfig,
   StorageService,
 } from '../storage/storage.service';
-import { CompleteUploadDto } from './dto/complete-upload.dto';
 import { CreateUploadDto } from './dto/create-upload.dto';
 import { ImportUrlDto } from './dto/import-url.dto';
 
@@ -153,15 +154,26 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
+    let checksum: string;
     try {
       await this.inspectImageFile(
         draft.tempPath,
         BigInt(image.sizeBytes),
         image.mimeType,
       );
+      checksum = await this.sha256File(draft.tempPath);
+      await this.rejectDuplicate(ownerId, image.id, checksum);
       await draft.commit();
     } catch (error) {
       await draft.cleanup().catch(() => undefined);
+      await this.prisma.image.deleteMany({
+        where: {
+          id: image.id,
+          ownerId,
+          status: ImageStatus.PENDING,
+          uploadedAt: null,
+        },
+      });
       throw error;
     }
 
@@ -169,6 +181,7 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
       ownerId,
       { ...image, storageKey: key },
       setting,
+      checksum,
     );
   }
 
@@ -200,7 +213,7 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async complete(ownerId: string, id: string, dto: CompleteUploadDto) {
+  async complete(ownerId: string, id: string) {
     const image = await this.prisma.image.findUnique({
       where: { id },
     });
@@ -222,7 +235,34 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
 
     const setting = await this.settings.getRuntime(ownerId);
     await this.verifyStoredObject(image, this.toStorageSetting(setting));
-    return this.finalizeUploadedObject(ownerId, image, setting, dto.checksum);
+    const stored = await this.storage.getObjectBuffer(
+      image.storageKey,
+      this.toStorageSetting({
+        ...setting,
+        storageProvider: image.storageProvider,
+      }),
+    );
+    const checksum = this.sha256Buffer(stored);
+    try {
+      await this.rejectDuplicate(ownerId, image.id, checksum);
+    } catch (error) {
+      await this.storage
+        .deleteObject(image.storageKey, {
+          ...this.toStorageSetting(setting),
+          storageProvider: image.storageProvider,
+        })
+        .catch(() => undefined);
+      await this.prisma.image.deleteMany({
+        where: {
+          id: image.id,
+          ownerId,
+          status: ImageStatus.PENDING,
+          uploadedAt: null,
+        },
+      });
+      throw error;
+    }
+    return this.finalizeUploadedObject(ownerId, image, setting, checksum);
   }
 
   private async finalizeUploadedObject(
@@ -355,6 +395,8 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
       input.body,
       BigInt(input.body.length),
     );
+    const checksum = this.sha256Buffer(input.body);
+    await this.rejectDuplicate(ownerId, '', checksum);
     const contentType = inspection.contentType;
     this.validateUploadPolicy(contentType, input.body.length, setting);
     await this.ensureQuota(ownerId, input.body.length);
@@ -399,6 +441,7 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
               ? ImageStatus.PENDING
               : ImageStatus.PROCESSING,
             uploadedAt: new Date(),
+            checksum,
           },
         });
       });
@@ -562,6 +605,36 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
 
     if (sizeBytes > setting.maxSizeBytes) {
       throw new BadRequestException('Image exceeds max upload size');
+    }
+  }
+
+  private sha256Buffer(buffer: Buffer) {
+    return createHash('sha256').update(buffer).digest('hex');
+  }
+
+  private async sha256File(filePath: string) {
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+    return hash.digest('hex');
+  }
+
+  private async rejectDuplicate(
+    ownerId: string,
+    currentId: string,
+    checksum: string,
+  ) {
+    const duplicate = await this.prisma.image.findFirst({
+      where: {
+        ownerId,
+        checksum,
+        id: currentId ? { not: currentId } : undefined,
+        uploadedAt: { not: null },
+        status: { not: ImageStatus.DELETED },
+      },
+      select: { title: true },
+    });
+    if (duplicate) {
+      throw new BadRequestException(`相同图片已存在：${duplicate.title}`);
     }
   }
 

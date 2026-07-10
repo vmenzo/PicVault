@@ -136,6 +136,18 @@ export class UpdateAppSettingDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsBoolean()
+  registrationEnabled?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(3650)
+  trashRetentionDays?: number;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
   telegramBotEnabled?: boolean;
 
   @ApiPropertyOptional()

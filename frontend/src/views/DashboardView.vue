@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import {
+  ArrowRight,
   Connection,
   Folder,
   Picture,
@@ -103,6 +104,42 @@ onMounted(async () => {
 
 <template>
   <div class="page-stack" v-loading="loading">
+    <section class="dashboard-overview">
+      <div class="dashboard-intro">
+        <span class="section-kicker">工作区概况</span>
+        <h2>{{ auth.user?.name || '你好' }}，今天要整理哪些图片？</h2>
+        <p>
+          当前共有 {{ stats.total }} 张图片，{{ stats.ready }} 张可正常访问。
+        </p>
+        <div class="dashboard-primary-actions">
+          <el-button
+            type="primary"
+            :icon="UploadFilled"
+            @click="router.push('/upload')"
+            >上传图片</el-button
+          >
+          <el-button :icon="Picture" @click="router.push('/library')"
+            >进入图片库</el-button
+          >
+        </div>
+      </div>
+      <div class="storage-summary">
+        <div class="storage-summary-head">
+          <span>存储空间</span>
+          <strong>{{ quotaUsage }}%</strong>
+        </div>
+        <el-progress
+          :percentage="quotaUsage"
+          :show-text="false"
+          :stroke-width="10"
+        />
+        <div class="storage-summary-foot">
+          <span>已用 {{ formatBytes(stats.usedBytes) }}</span>
+          <span>共 {{ formatBytes(stats.quotaBytes) }}</span>
+        </div>
+      </div>
+    </section>
+
     <section class="metrics-grid">
       <el-card
         v-for="card in cards"
@@ -140,6 +177,7 @@ onMounted(async () => {
         </span>
         <strong>{{ action.label }}</strong>
         <em>{{ action.description }}</em>
+        <el-icon class="quick-action-arrow"><ArrowRight /></el-icon>
       </button>
     </section>
 

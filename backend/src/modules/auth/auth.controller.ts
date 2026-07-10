@@ -8,7 +8,6 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { Request } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
@@ -37,22 +36,25 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
     private readonly loginThrottle: LoginThrottleGuard,
   ) {}
 
   @Get('registration-status')
   async registrationStatus() {
-    const userCount = await this.prisma.user.count();
+    const [userCount, registrationEnabled] = await Promise.all([
+      this.prisma.user.count(),
+      this.auth.registrationEnabled(),
+    ]);
 
     return {
       firstUser: userCount === 0,
+      registrationEnabled,
     };
   }
 
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    if (this.config.get<string>('ALLOW_REGISTER') !== 'true') {
+  async register(@Body() dto: RegisterDto) {
+    if (!(await this.auth.registrationEnabled())) {
       throw new ForbiddenException('Registration is disabled');
     }
 
@@ -60,11 +62,11 @@ export class AuthController {
   }
 
   @Post('registration-code')
-  requestRegistrationCode(
+  async requestRegistrationCode(
     @Body() dto: RequestRegistrationCodeDto,
     @Req() request: Request,
   ) {
-    if (this.config.get<string>('ALLOW_REGISTER') !== 'true') {
+    if (!(await this.auth.registrationEnabled())) {
       throw new ForbiddenException('Registration is disabled');
     }
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKUP_DIR="${PICVAULT_BACKUP_DIR:-${ROOT_DIR}/backups}"
@@ -9,6 +10,7 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 DEST="${BACKUP_DIR}/${STAMP}"
 
 mkdir -p "${DEST}"
+chmod 700 "${BACKUP_DIR}" "${DEST}"
 cd "${ROOT_DIR}"
 
 docker compose exec -T postgres pg_dump -U "${POSTGRES_USER:-picvault}" "${POSTGRES_DB:-picvault}" > "${DEST}/postgres.sql"

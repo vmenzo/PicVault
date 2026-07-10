@@ -13,7 +13,6 @@ import {
   CurrentUser,
   CurrentUserPayload,
 } from '../../common/current-user.decorator';
-import { CompleteUploadDto } from './dto/complete-upload.dto';
 import { CreateUploadDto } from './dto/create-upload.dto';
 import { ImportUrlDto } from './dto/import-url.dto';
 import { UploadObjectParamsDto } from './dto/upload-object-params.dto';
@@ -59,11 +58,7 @@ export class UploadController {
   }
 
   @Post(':id/complete')
-  complete(
-    @CurrentUser() user: CurrentUserPayload,
-    @Param('id') id: string,
-    @Body() dto: CompleteUploadDto,
-  ) {
-    return this.upload.complete(user.id, id, dto);
+  complete(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.upload.complete(user.id, id);
   }
 }

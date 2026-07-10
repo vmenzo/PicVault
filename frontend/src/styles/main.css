@@ -240,6 +240,16 @@ button {
   font-size: 13px;
 }
 
+.search-shortcut {
+  padding: 2px 6px;
+  border: 1px solid #dbe3ef;
+  border-radius: 5px;
+  color: #64748b;
+  background: #f8fafc;
+  font: inherit;
+  font-size: 11px;
+}
+
 .app-main {
   width: 100%;
   max-width: 1680px;
@@ -251,6 +261,66 @@ button {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.dashboard-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.7fr);
+  gap: 32px;
+  align-items: center;
+  padding: 30px 32px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.section-kicker {
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dashboard-intro h2 {
+  margin: 8px 0 6px;
+  font-size: 26px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.dashboard-intro p,
+.storage-summary-foot {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.dashboard-primary-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.storage-summary {
+  padding: 20px;
+  border-left: 1px solid #e5eaf3;
+}
+
+.storage-summary-head,
+.storage-summary-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.storage-summary-head {
+  margin-bottom: 14px;
+}
+
+.storage-summary-head strong {
+  font-size: 22px;
+}
+
+.storage-summary-foot {
+  margin-top: 10px;
 }
 
 .metrics-grid {
@@ -312,6 +382,16 @@ button {
   cursor: pointer;
   text-align: left;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.quick-action-arrow {
+  grid-column: 2;
+  justify-self: end;
+  color: #94a3b8;
+}
+
+.quick-action.primary .quick-action-arrow {
+  color: #ffffff;
 }
 
 .quick-action:hover {
@@ -403,6 +483,13 @@ button {
   width: 100%;
 }
 
+.table-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+  overflow-x: auto;
+}
+
 .clean-table .el-table__cell {
   padding: 10px 0;
 }
@@ -444,6 +531,21 @@ button {
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
+}
+
+.library-toolbar {
+  display: grid;
+  grid-template-columns: minmax(280px, 2fr) repeat(4, minmax(140px, 1fr));
+  align-items: center;
+}
+
+.library-toolbar .toolbar-search {
+  width: 100%;
+  max-width: none;
+}
+
+.library-toolbar .toolbar-select {
+  width: 100%;
 }
 
 .backup-actions {
@@ -642,7 +744,15 @@ button {
 
 .page-actions {
   display: flex;
+  align-items: center;
+  gap: 12px;
   justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.page-actions > .el-segmented {
+  margin-right: auto;
+  max-width: 100%;
 }
 
 .album-cell strong,
@@ -1292,10 +1402,16 @@ button {
   font-size: 13px;
 }
 
-.login-minor-actions {
+.password-label-row {
   display: flex;
+  width: 100%;
+  align-items: center;
   justify-content: flex-end;
-  margin: -8px 0 16px;
+  gap: 12px;
+}
+
+.password-label-row > span:first-child {
+  margin-right: auto;
 }
 
 .login-footnote {
@@ -1314,6 +1430,14 @@ button {
 
   .global-search {
     width: 240px;
+  }
+
+  .library-toolbar {
+    grid-template-columns: repeat(3, minmax(160px, 1fr));
+  }
+
+  .library-toolbar .toolbar-search {
+    grid-column: span 2;
   }
 }
 
@@ -1342,6 +1466,21 @@ button {
   .login-page,
   .share-shell {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-overview {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  .storage-summary {
+    padding: 20px 0 0;
+    border-top: 1px solid #e5eaf3;
+    border-left: 0;
+  }
+
+  .library-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .compare-grid {
@@ -1514,6 +1653,35 @@ button {
 
   .page-stack {
     gap: 12px;
+  }
+
+  .search-shortcut {
+    display: none;
+  }
+
+  .dashboard-overview {
+    gap: 18px;
+    padding: 20px 16px;
+  }
+
+  .dashboard-intro h2 {
+    font-size: 21px;
+  }
+
+  .dashboard-primary-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboard-primary-actions .el-button {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .library-toolbar,
+  .library-toolbar .toolbar-search {
+    grid-template-columns: 1fr;
+    grid-column: auto;
   }
 
   .panel-card .el-card__body,

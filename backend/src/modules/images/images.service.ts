@@ -2,7 +2,10 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import {
@@ -13,6 +16,8 @@ import {
 } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { lookup } from 'mime-types';
+import archiver from 'archiver';
+import { PassThrough } from 'node:stream';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { StorageRuntimeConfig } from '../storage/storage.service';
@@ -25,7 +30,10 @@ import { ListImagesDto } from './dto/list-images.dto';
 import { UpdateImageDto } from './dto/update-image.dto';
 
 @Injectable()
-export class ImagesService {
+export class ImagesService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(ImagesService.name);
+  private trashCleanupTimer?: NodeJS.Timeout;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
@@ -33,6 +41,42 @@ export class ImagesService {
     @InjectQueue('image-processing')
     private readonly processingQueue: Queue,
   ) {}
+
+  onModuleInit() {
+    this.trashCleanupTimer = setInterval(
+      () => void this.cleanupExpiredTrash(),
+      24 * 60 * 60 * 1000,
+    );
+    this.trashCleanupTimer.unref();
+    setTimeout(() => void this.cleanupExpiredTrash(), 60_000).unref();
+  }
+
+  onModuleDestroy() {
+    if (this.trashCleanupTimer) clearInterval(this.trashCleanupTimer);
+  }
+
+  private async cleanupExpiredTrash() {
+    try {
+      const owners = await this.prisma.user.findMany({
+        where: { images: { some: { status: ImageStatus.DELETED } } },
+        select: { id: true },
+      });
+      let affected = 0;
+      for (const owner of owners) {
+        for (let batch = 0; batch < 100; batch += 1) {
+          const result = await this.emptyExpiredTrash(owner.id);
+          affected += result.affected;
+          if (result.affected < 1000) break;
+        }
+      }
+      if (affected) this.logger.log(`Cleaned ${affected} expired trash items`);
+    } catch (error) {
+      this.logger.error(
+        'Scheduled trash cleanup failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
 
   async list(ownerId: string, query: ListImagesDto) {
     const page = query.page ?? 1;
@@ -282,6 +326,92 @@ export class ImagesService {
       );
     }
     return { ok: true };
+  }
+
+  async emptyExpiredTrash(ownerId: string) {
+    const setting = await this.settings.getRuntime(ownerId);
+    const days = setting.trashRetentionDays ?? 30;
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const images = await this.prisma.image.findMany({
+      where: {
+        ownerId,
+        status: ImageStatus.DELETED,
+        updatedAt: { lte: cutoff },
+      },
+      select: { id: true },
+      take: 1000,
+    });
+    if (!images.length) return { affected: 0 };
+    return this.permanentlyDelete(
+      ownerId,
+      images.map((image) => image.id),
+    );
+  }
+
+  async exportZip(ownerId: string, ids: string[]) {
+    const images = await this.prisma.image.findMany({
+      where: {
+        ownerId,
+        id: { in: ids },
+        status: { not: ImageStatus.DELETED },
+        uploadedAt: { not: null },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!images.length) throw new BadRequestException('No exportable images');
+
+    const output = new PassThrough();
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    archive.on('error', (error) => output.destroy(error));
+    archive.pipe(output);
+
+    const usedNames = new Set<string>();
+    for (const image of images) {
+      const setting = await this.getImageStorageSetting(
+        ownerId,
+        image.storageProvider,
+      );
+      const stream = await this.storage.createReadStreamIfExists(
+        image.storageKey,
+        setting,
+      );
+      if (!stream) continue;
+      let name = this.exportFilename(
+        image.originalName || image.title,
+        image.id,
+      );
+      if (usedNames.has(name)) name = `${image.id}-${name}`;
+      usedNames.add(name);
+      archive.append(stream, { name: `images/${name}` });
+    }
+    archive.append(
+      JSON.stringify(
+        {
+          exportedAt: new Date().toISOString(),
+          images: images.map((image) => ({
+            id: image.id,
+            title: image.title,
+            originalName: image.originalName,
+            mimeType: image.mimeType,
+            sizeBytes: Number(image.sizeBytes),
+            tags: image.tags,
+            visibility: image.visibility,
+            checksum: image.checksum,
+            createdAt: image.createdAt,
+          })),
+        },
+        null,
+        2,
+      ),
+      { name: 'manifest.json' },
+    );
+    void archive.finalize();
+    return output;
+  }
+
+  private exportFilename(value: string, fallback: string) {
+    const cleaned = value.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').trim();
+    return cleaned || fallback;
   }
 
   async bulk(ownerId: string, dto: BulkImageActionDto) {

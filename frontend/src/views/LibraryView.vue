@@ -21,6 +21,7 @@ import ProtectedImage from '@/components/ProtectedImage.vue';
 import {
   bulkImagesApi,
   deleteImageApi,
+  exportImagesApi,
   listImagesApi,
   listTagsApi,
   permanentDeleteImageApi,
@@ -308,6 +309,18 @@ async function bulkDelete() {
   load();
 }
 
+async function exportSelected() {
+  if (!selectedIds.value.length) return;
+  const blob = await exportImagesApi(selectedIds.value);
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `picvault-export-${new Date().toISOString().slice(0, 10)}.zip`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+  ElMessage.success(`正在导出 ${selectedIds.value.length} 张图片`);
+}
+
 async function bulkRestore() {
   if (!selectedIds.value.length) return;
   if (!selectedRestorableImages.value.length) {
@@ -583,6 +596,9 @@ watch(
             @click="bulkLinksVisible = true"
           >
             链接面板
+          </el-button>
+          <el-button size="small" :icon="Download" @click="exportSelected">
+            导出 ZIP
           </el-button>
           <el-button
             size="small"

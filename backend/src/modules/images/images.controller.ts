@@ -21,6 +21,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { BulkImageActionDto } from './dto/bulk-image-action.dto';
 import { ListImagesDto } from './dto/list-images.dto';
 import { UpdateImageDto } from './dto/update-image.dto';
+import { ExportImagesDto } from './dto/export-images.dto';
 import { ImagesService } from './images.service';
 
 @ApiTags('images')
@@ -73,6 +74,20 @@ export class ImagesController {
     return this.images.bulk(user.id, dto);
   }
 
+  @Post('export')
+  async exportZip(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() dto: ExportImagesDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const archive = await this.images.exportZip(user.id, dto.ids);
+    response.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="picvault-export-${Date.now()}.zip"`,
+    });
+    return new StreamableFile(archive);
+  }
+
   @Post(':id/restore')
   restore(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.images.restore(user.id, id);
@@ -103,6 +118,11 @@ export class ImagesController {
     @Param('id') id: string,
   ) {
     return this.images.permanentRemove(user.id, id);
+  }
+
+  @Delete('trash/expired/all')
+  emptyExpiredTrash(@CurrentUser() user: CurrentUserPayload) {
+    return this.images.emptyExpiredTrash(user.id);
   }
 }
 

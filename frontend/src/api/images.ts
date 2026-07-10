@@ -55,6 +55,20 @@ export function permanentDeleteImageApi(id: string) {
   return http.delete<unknown, { ok: boolean }>(`/images/${id}/permanent`);
 }
 
+export function emptyExpiredTrashApi() {
+  return http.delete<unknown, { affected: number }>(
+    '/images/trash/expired/all',
+  );
+}
+
+export function exportImagesApi(ids: string[]) {
+  return http.post<unknown, Blob>(
+    '/images/export',
+    { ids },
+    { responseType: 'blob' },
+  );
+}
+
 export function bulkImagesApi(payload: {
   ids: string[];
   action:

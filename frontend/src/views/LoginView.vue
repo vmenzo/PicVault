@@ -23,7 +23,7 @@ const sendingCode = ref(false);
 const codeCooldown = ref(0);
 let codeTimer: number | undefined;
 const mode = ref<AuthMode>('login');
-const allowRegister = import.meta.env.VITE_ALLOW_REGISTER === 'true';
+const allowRegister = ref(false);
 const firstUser = ref(false);
 const form = reactive({
   email: '',
@@ -43,7 +43,9 @@ const subtitle = computed(() => {
   if (mode.value === 'register') return '创建团队的图片资产空间';
   if (mode.value === 'forgot') return '输入账户邮箱，系统会发送密码重置邮件';
   if (mode.value === 'reset') return '设置一个新的安全密码';
-  return allowRegister ? '进入你的图片资产工作台' : '使用管理员账户进入工作台';
+  return allowRegister.value
+    ? '进入你的图片资产工作台'
+    : '使用管理员账户进入工作台';
 });
 const submitLabel = computed(() => {
   if (mode.value === 'register') return '注册并登录';
@@ -58,7 +60,7 @@ const needsPassword = computed(() =>
   ['login', 'register'].includes(mode.value),
 );
 const showFirstAdminHint = computed(
-  () => allowRegister && firstUser.value && mode.value === 'register',
+  () => allowRegister.value && firstUser.value && mode.value === 'register',
 );
 const rules = computed<FormRules>(() => ({
   email: [
@@ -111,13 +113,13 @@ onUnmounted(() => {
 });
 
 async function loadRegistrationStatus() {
-  if (!allowRegister) return;
-
   try {
     const status = await registrationStatusApi();
     firstUser.value = status.firstUser;
+    allowRegister.value = status.registrationEnabled;
   } catch {
     firstUser.value = false;
+    allowRegister.value = false;
   }
 }
 
@@ -274,7 +276,20 @@ function switchRegister() {
             </el-input>
           </el-form-item>
 
-          <el-form-item v-if="needsPassword" label="密码" prop="password">
+          <el-form-item v-if="needsPassword" prop="password">
+            <template #label>
+              <div class="password-label-row">
+                <span>密码</span>
+                <button
+                  v-if="mode === 'login'"
+                  class="link-button compact"
+                  type="button"
+                  @click="setMode('forgot')"
+                >
+                  忘记密码？
+                </button>
+              </div>
+            </template>
             <el-input
               v-model="form.password"
               size="large"
@@ -331,16 +346,6 @@ function switchRegister() {
               </template>
             </el-input>
           </el-form-item>
-
-          <div v-if="mode === 'login'" class="login-minor-actions">
-            <button
-              class="link-button compact"
-              type="button"
-              @click="setMode('forgot')"
-            >
-              忘记密码？
-            </button>
-          </div>
 
           <el-button
             native-type="submit"
