@@ -138,7 +138,7 @@ function handleUserCommand(command: string) {
         @click="go('/dashboard')"
       >
         <div class="brand-mark">
-          <img src="/picvault-mark.svg" alt="" />
+          <img src="/picvault-mark.svg?v=5" alt="" />
         </div>
         <div>
           <strong>PicVault</strong>
