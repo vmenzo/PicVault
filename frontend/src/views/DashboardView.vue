@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { Picture } from '@element-plus/icons-vue';
 import { useRouter } from 'vue-router';
 import { imageStatsApi, listImagesApi } from '@/api/images';
 import ProtectedImage from '@/components/ProtectedImage.vue';
-import type { ImageItem, ImageStats } from '@/api/types';
+import type { ImageItem, ImageStats, ImageStatus } from '@/api/types';
 import { formatBytes, formatDate, statusLabel } from '@/utils/format';
 
 const router = useRouter();
@@ -27,13 +26,51 @@ const quotaUsage = computed(() => {
     100,
   );
 });
+const remainingBytes = computed(() =>
+  Math.max(stats.value.quotaBytes - stats.value.usedBytes, 0),
+);
+
+const chartSegments = computed(() => {
+  const total = stats.value.total || 0;
+  const segments: {
+    label: string;
+    value: number;
+    color: string;
+    status: ImageStatus;
+  }[] = [
+    { label: '可正常访问', value: stats.value.ready, color: '#2f9e68', status: 'READY' },
+    { label: '处理中', value: stats.value.pending, color: '#e6a23c', status: 'PROCESSING' },
+    { label: '处理失败', value: stats.value.failed, color: '#d94b42', status: 'FAILED' },
+    { label: '回收站', value: stats.value.deleted, color: '#89918d', status: 'DELETED' },
+  ];
+
+  return segments.map((segment) => ({
+    ...segment,
+    percentage: total ? Math.round((segment.value / total) * 100) : 0,
+  }));
+});
+
+const chartStyle = computed(() => {
+  if (!stats.value.total) return { background: '#e8ece9' };
+  let offset = 0;
+  const stops = chartSegments.value.map((segment) => {
+    const start = offset;
+    offset += segment.value / stats.value.total;
+    return `${segment.color} ${start * 360}deg ${offset * 360}deg`;
+  });
+  return { background: `conic-gradient(${stops.join(', ')})` };
+});
+
+function openStatus(status: ImageStatus) {
+  router.push({ path: '/library', query: { status } });
+}
 
 onMounted(async () => {
   loading.value = true;
   try {
     const [statsData, imagesData] = await Promise.all([
       imageStatsApi(),
-      listImagesApi({ page: 1, pageSize: 8 }),
+      listImagesApi({ page: 1, pageSize: 3, sortBy: 'createdAt', sortOrder: 'desc' }),
     ]);
     stats.value = statsData;
     latest.value = imagesData.items;
@@ -45,62 +82,65 @@ onMounted(async () => {
 
 <template>
   <div class="page-stack" v-loading="loading">
-    <section class="dashboard-summary">
-      <div>
-        <span>全部资产</span><strong>{{ stats.total }}</strong>
-      </div>
-      <div>
-        <span>可正常访问</span><strong>{{ stats.ready }}</strong>
-      </div>
-      <div>
-        <span>相册</span><strong>{{ stats.albums }}</strong>
-      </div>
-      <div>
-        <span>回收站</span><strong>{{ stats.deleted }}</strong>
-      </div>
-      <el-button :icon="Picture" @click="router.push('/library')"
-        >打开图片库</el-button
-      >
-    </section>
-
     <section class="dashboard-workspace">
-      <el-card shadow="never" class="panel-card dashboard-recent">
+      <el-card shadow="never" class="panel-card dashboard-chart-card">
         <template #header>
           <div class="panel-head">
-            <strong>最近上传</strong>
-            <el-button link type="primary" @click="router.push('/library')"
-              >查看全部</el-button
-            >
+            <div>
+              <strong>资产状态分布</strong>
+              <span>当前图片的处理与可用状态</span>
+            </div>
+            <el-button link type="primary" @click="router.push('/library')">查看图片库</el-button>
           </div>
         </template>
-        <el-table :data="latest" class="clean-table">
-          <el-table-column label="图片" min-width="260">
-            <template #default="{ row }">
-              <div class="image-row">
-                <ProtectedImage :image="row" :alt="row.title" />
-                <div>
-                  <strong>{{ row.title }}</strong>
-                  <span>{{ row.originalName }}</span>
-                </div>
-              </div>
-            </template>
-          </el-table-column>
-          <el-table-column label="大小" width="120">
-            <template #default="{ row }">{{
-              formatBytes(row.sizeBytes)
-            }}</template>
-          </el-table-column>
-          <el-table-column label="状态" width="120">
-            <template #default="{ row }">
-              <el-tag size="small">{{ statusLabel(row.status) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="时间" width="170">
-            <template #default="{ row }">{{
-              formatDate(row.createdAt)
-            }}</template>
-          </el-table-column>
-        </el-table>
+        <div class="asset-chart-layout">
+          <div
+            class="asset-donut"
+            :style="chartStyle"
+            role="img"
+            :aria-label="`共 ${stats.total} 项资产`"
+          >
+            <div class="asset-donut-center">
+              <strong>{{ stats.total }}</strong>
+              <span>全部资产</span>
+            </div>
+          </div>
+          <div class="asset-chart-legend">
+            <button
+              v-for="segment in chartSegments"
+              :key="segment.status"
+              type="button"
+              @click="openStatus(segment.status)"
+            >
+              <i :style="{ background: segment.color }"></i>
+              <span>{{ segment.label }}</span>
+              <strong>{{ segment.value }}</strong>
+              <small>{{ segment.percentage }}%</small>
+            </button>
+          </div>
+        </div>
+        <div class="dashboard-latest">
+          <div class="dashboard-latest-head">
+            <strong>最近上传</strong>
+            <button type="button" @click="router.push('/library')">查看全部</button>
+          </div>
+          <div v-if="latest.length" class="dashboard-latest-list">
+            <button
+              v-for="image in latest"
+              :key="image.id"
+              type="button"
+              @click="router.push(`/library?image=${image.id}`)"
+            >
+              <ProtectedImage :image="image" :alt="image.title" />
+              <span>
+                <strong>{{ image.title }}</strong>
+                <small>{{ formatDate(image.createdAt) }}</small>
+              </span>
+              <em>{{ statusLabel(image.status) }}</em>
+            </button>
+          </div>
+          <el-empty v-else description="暂无上传记录" :image-size="54" />
+        </div>
       </el-card>
 
       <aside class="dashboard-side">
@@ -111,16 +151,20 @@ onMounted(async () => {
               管理
             </button>
           </div>
-          <div class="storage-values">
-            <strong>{{ formatBytes(stats.usedBytes) }}</strong>
-            <span>/ {{ formatBytes(stats.quotaBytes) }}</span>
+          <div class="storage-chart">
+            <el-progress
+              type="circle"
+              :percentage="quotaUsage"
+              :width="126"
+              :stroke-width="10"
+              color="#2457d6"
+            />
           </div>
-          <el-progress
-            :percentage="quotaUsage"
-            :show-text="false"
-            :stroke-width="8"
-          />
-          <small>已使用 {{ quotaUsage }}%</small>
+          <div class="storage-chart-values">
+            <div><span>已使用</span><strong>{{ formatBytes(stats.usedBytes) }}</strong></div>
+            <div><span>剩余</span><strong>{{ formatBytes(remainingBytes) }}</strong></div>
+          </div>
+          <small>总容量 {{ formatBytes(stats.quotaBytes) }}</small>
         </section>
 
         <section class="dashboard-status">
