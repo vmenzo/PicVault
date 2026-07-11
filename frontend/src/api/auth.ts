@@ -53,7 +53,11 @@ export function meApi() {
   return http.get<unknown, User>('/auth/me');
 }
 
-export function updateProfileApi(payload: { name?: string; email?: string }) {
+export function updateProfileApi(payload: {
+  name?: string;
+  email?: string;
+  avatarUrl?: string | null;
+}) {
   return http.patch<unknown, User>('/auth/profile', payload);
 }
 

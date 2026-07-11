@@ -12,6 +12,7 @@ export type User = {
   publicId: string;
   email: string;
   name: string;
+  avatarUrl?: string | null;
   role: 'USER' | 'ADMIN';
   quotaBytes: number;
   usedBytes: number;

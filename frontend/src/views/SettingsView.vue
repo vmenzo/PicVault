@@ -32,7 +32,9 @@ const createdKey = ref('');
 const profileForm = reactive({
   name: '',
   email: '',
+  avatarUrl: '',
 });
+const avatarPreviewFailed = ref(false);
 const keyForm = reactive({
   name: 'CLI uploader',
 });
@@ -61,6 +63,8 @@ async function load() {
     await auth.loadProfile();
     profileForm.name = auth.user?.name ?? '';
     profileForm.email = auth.user?.email ?? '';
+    profileForm.avatarUrl = auth.user?.avatarUrl ?? '';
+    avatarPreviewFailed.value = false;
     apiKeys.value = await listApiKeysApi();
   } finally {
     loading.value = false;
@@ -68,12 +72,20 @@ async function load() {
 }
 
 async function saveProfile() {
+  const avatarUrl = profileForm.avatarUrl.trim();
+  if (avatarUrl && !avatarUrl.startsWith('https://')) {
+    ElMessage.warning('头像地址必须使用 HTTPS');
+    return;
+  }
   await auth.updateProfile({
     name: profileForm.name,
     email: profileForm.email,
+    avatarUrl: avatarUrl || null,
   });
   profileForm.email = auth.user?.email ?? '';
   profileForm.name = auth.user?.name ?? '';
+  profileForm.avatarUrl = auth.user?.avatarUrl ?? '';
+  avatarPreviewFailed.value = false;
   ElMessage.success('资料已保存');
 }
 
@@ -127,8 +139,15 @@ onMounted(load);
           </div>
         </template>
         <div class="account-profile">
-          <div class="account-avatar">
-            <el-icon><User /></el-icon>
+          <div class="account-avatar account-avatar-editor">
+            <img
+              v-if="profileForm.avatarUrl && !avatarPreviewFailed"
+              :src="profileForm.avatarUrl"
+              alt="账户头像"
+              referrerpolicy="no-referrer"
+              @error="avatarPreviewFailed = true"
+            />
+            <el-icon v-else><User /></el-icon>
           </div>
           <el-form label-position="top" class="account-form">
             <el-form-item label="显示名称">
@@ -136,6 +155,17 @@ onMounted(load);
             </el-form-item>
             <el-form-item label="邮箱">
               <el-input v-model.trim="profileForm.email" />
+            </el-form-item>
+            <el-form-item label="头像地址">
+              <el-input
+                v-model.trim="profileForm.avatarUrl"
+                placeholder="https://example.com/avatar.jpg"
+                clearable
+                @input="avatarPreviewFailed = false"
+              />
+              <span class="form-help"
+                >填写公开可访问的 HTTPS 图片地址，留空可清除头像。</span
+              >
             </el-form-item>
             <el-form-item label="角色">
               <el-tag>{{ auth.user?.role }}</el-tag>

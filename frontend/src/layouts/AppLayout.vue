@@ -27,6 +27,7 @@ const auth = useAuthStore();
 const mobileNavVisible = ref(false);
 const globalQuery = ref('');
 const globalSearchRef = ref<{ focus: () => void }>();
+const avatarLoadFailed = ref(false);
 
 const navItems = [
   { path: '/dashboard', label: '总览', icon: House, group: '资产' },
@@ -109,6 +110,13 @@ watch(
   { immediate: true },
 );
 
+watch(
+  () => auth.user?.avatarUrl,
+  () => {
+    avatarLoadFailed.value = false;
+  },
+);
+
 function handleUserCommand(command: string) {
   if (command === 'settings') {
     router.push('/settings');
@@ -122,8 +130,13 @@ function handleUserCommand(command: string) {
 
 <template>
   <el-container class="app-shell">
-    <el-aside width="232px" class="app-sidebar">
-      <div class="brand">
+    <el-aside width="220px" class="app-sidebar">
+      <button
+        class="brand"
+        type="button"
+        aria-label="返回总览"
+        @click="go('/dashboard')"
+      >
         <div class="brand-mark">
           <el-icon><Grid /></el-icon>
         </div>
@@ -131,7 +144,12 @@ function handleUserCommand(command: string) {
           <strong>PicVault</strong>
           <span>图片资产平台</span>
         </div>
-      </div>
+      </button>
+
+      <button class="sidebar-upload" type="button" @click="go('/upload')">
+        <el-icon><UploadFilled /></el-icon>
+        <span>上传新图片</span>
+      </button>
 
       <el-menu
         :default-active="route.path"
@@ -155,10 +173,25 @@ function handleUserCommand(command: string) {
       </el-menu>
 
       <div class="sidebar-footer">
-        <span>Workspace</span>
-        <strong>{{
-          auth.user?.role === 'ADMIN' ? 'Administrator' : 'Member'
-        }}</strong>
+        <span class="sidebar-avatar">
+          <img
+            v-if="auth.user?.avatarUrl && !avatarLoadFailed"
+            :src="auth.user.avatarUrl"
+            alt=""
+            referrerpolicy="no-referrer"
+            @error="avatarLoadFailed = true"
+          />
+          <template v-else>{{
+            auth.user?.name?.slice(0, 1).toUpperCase()
+          }}</template>
+        </span>
+        <div>
+          <strong>{{ auth.user?.name || 'Account' }}</strong>
+          <small>{{
+            auth.user?.role === 'ADMIN' ? '管理员工作区' : '成员工作区'
+          }}</small>
+        </div>
+        <i title="服务在线"></i>
       </div>
     </el-aside>
 
@@ -192,16 +225,20 @@ function handleUserCommand(command: string) {
           <el-button :icon="Link" @click="router.push('/links')">
             链接
           </el-button>
-          <el-button
-            type="primary"
-            :icon="UploadFilled"
-            @click="router.push('/upload')"
-          >
-            上传
-          </el-button>
           <el-dropdown trigger="click" @command="handleUserCommand">
             <button class="user-button">
-              <span>{{ auth.user?.name?.slice(0, 1).toUpperCase() }}</span>
+              <span>
+                <img
+                  v-if="auth.user?.avatarUrl && !avatarLoadFailed"
+                  :src="auth.user.avatarUrl"
+                  alt=""
+                  referrerpolicy="no-referrer"
+                  @error="avatarLoadFailed = true"
+                />
+                <template v-else>{{
+                  auth.user?.name?.slice(0, 1).toUpperCase()
+                }}</template>
+              </span>
               <strong>{{ auth.user?.name || 'Account' }}</strong>
             </button>
             <template #dropdown>

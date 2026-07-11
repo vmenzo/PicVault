@@ -24,7 +24,11 @@ export const useAuthStore = defineStore('auth', {
       const session = await registerApi(payload);
       this.setSession(session.accessToken, session.user);
     },
-    async updateProfile(payload: { name?: string; email?: string }) {
+    async updateProfile(payload: {
+      name?: string;
+      email?: string;
+      avatarUrl?: string | null;
+    }) {
       this.user = await updateProfileApi(payload);
     },
     async loadProfile() {

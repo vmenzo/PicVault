@@ -106,6 +106,7 @@ export class AuthController {
         publicId: true,
         email: true,
         name: true,
+        avatarUrl: true,
         role: true,
         quotaBytes: true,
         usedBytes: true,

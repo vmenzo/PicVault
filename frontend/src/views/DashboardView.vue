@@ -1,24 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import {
-  ArrowRight,
-  Connection,
-  Folder,
-  Picture,
-  Setting,
-  Tickets,
-  UploadFilled,
-  Wallet,
-} from '@element-plus/icons-vue';
+import { Picture } from '@element-plus/icons-vue';
 import { useRouter } from 'vue-router';
 import { imageStatsApi, listImagesApi } from '@/api/images';
 import ProtectedImage from '@/components/ProtectedImage.vue';
 import type { ImageItem, ImageStats } from '@/api/types';
-import { useAuthStore } from '@/stores/auth';
 import { formatBytes, formatDate, statusLabel } from '@/utils/format';
 
 const router = useRouter();
-const auth = useAuthStore();
 const loading = ref(true);
 const stats = ref<ImageStats>({
   total: 0,
@@ -39,54 +28,6 @@ const quotaUsage = computed(() => {
   );
 });
 
-const cards = [
-  { key: 'total', label: '图片总数', icon: Picture },
-  { key: 'ready', label: '可访问', icon: Tickets },
-  { key: 'albums', label: '相册', icon: UploadFilled },
-  { key: 'usedBytes', label: '已用容量', icon: Wallet },
-] as const;
-const quickActions = computed(() => [
-  {
-    label: '上传图片',
-    description: '本地、远程或剪贴板上传',
-    icon: UploadFilled,
-    path: '/upload',
-    type: 'primary',
-  },
-  {
-    label: '管理图片库',
-    description: '筛选、批量处理、复制外链',
-    icon: Picture,
-    path: '/library',
-    type: 'default',
-  },
-  {
-    label: '整理相册',
-    description: '按项目归档图片资产',
-    icon: Folder,
-    path: '/albums',
-    type: 'default',
-  },
-  {
-    label: '生成链接',
-    description: 'URL、Markdown、HTML 格式',
-    icon: Connection,
-    path: '/links',
-    type: 'default',
-  },
-  ...(auth.user?.role === 'ADMIN'
-    ? [
-        {
-          label: '系统配置',
-          description: '存储、策略、Bot 与安全',
-          icon: Setting,
-          path: '/control',
-          type: 'default',
-        },
-      ]
-    : []),
-]);
-
 onMounted(async () => {
   loading.value = true;
   try {
@@ -104,85 +45,26 @@ onMounted(async () => {
 
 <template>
   <div class="page-stack" v-loading="loading">
-    <section class="dashboard-overview">
-      <div class="dashboard-intro">
-        <span class="section-kicker">工作区概况</span>
-        <h2>{{ auth.user?.name || '你好' }}，今天要整理哪些图片？</h2>
-        <p>
-          当前共有 {{ stats.total }} 张图片，{{ stats.ready }} 张可正常访问。
-        </p>
-        <div class="dashboard-primary-actions">
-          <el-button
-            type="primary"
-            :icon="UploadFilled"
-            @click="router.push('/upload')"
-            >上传图片</el-button
-          >
-          <el-button :icon="Picture" @click="router.push('/library')"
-            >进入图片库</el-button
-          >
-        </div>
+    <section class="dashboard-summary">
+      <div>
+        <span>全部资产</span><strong>{{ stats.total }}</strong>
       </div>
-      <div class="storage-summary">
-        <div class="storage-summary-head">
-          <span>存储空间</span>
-          <strong>{{ quotaUsage }}%</strong>
-        </div>
-        <el-progress
-          :percentage="quotaUsage"
-          :show-text="false"
-          :stroke-width="10"
-        />
-        <div class="storage-summary-foot">
-          <span>已用 {{ formatBytes(stats.usedBytes) }}</span>
-          <span>共 {{ formatBytes(stats.quotaBytes) }}</span>
-        </div>
+      <div>
+        <span>可正常访问</span><strong>{{ stats.ready }}</strong>
       </div>
-    </section>
-
-    <section class="metrics-grid">
-      <el-card
-        v-for="card in cards"
-        :key="card.key"
-        shadow="never"
-        class="metric-card"
+      <div>
+        <span>相册</span><strong>{{ stats.albums }}</strong>
+      </div>
+      <div>
+        <span>回收站</span><strong>{{ stats.deleted }}</strong>
+      </div>
+      <el-button :icon="Picture" @click="router.push('/library')"
+        >打开图片库</el-button
       >
-        <div class="metric-icon">
-          <el-icon><component :is="card.icon" /></el-icon>
-        </div>
-        <div>
-          <span>{{ card.label }}</span>
-          <strong>
-            {{
-              card.key === 'usedBytes'
-                ? formatBytes(stats[card.key])
-                : stats[card.key]
-            }}
-          </strong>
-        </div>
-      </el-card>
     </section>
 
-    <section class="quick-action-grid">
-      <button
-        v-for="action in quickActions"
-        :key="action.path"
-        type="button"
-        class="quick-action"
-        :class="{ primary: action.type === 'primary' }"
-        @click="router.push(action.path)"
-      >
-        <span>
-          <el-icon><component :is="action.icon" /></el-icon>
-        </span>
-        <strong>{{ action.label }}</strong>
-        <em>{{ action.description }}</em>
-        <el-icon class="quick-action-arrow"><ArrowRight /></el-icon>
-      </button>
-    </section>
-
-    <section class="content-grid">
-      <el-card shadow="never" class="panel-card">
+    <section class="dashboard-workspace">
+      <el-card shadow="never" class="panel-card dashboard-recent">
         <template #header>
           <div class="panel-head">
             <strong>最近上传</strong>
@@ -221,23 +103,42 @@ onMounted(async () => {
         </el-table>
       </el-card>
 
-      <el-card shadow="never" class="panel-card">
-        <template #header>
+      <aside class="dashboard-side">
+        <section class="storage-strip">
           <div class="panel-head">
-            <strong>存储状态</strong>
-            <el-button link type="primary" @click="router.push('/settings')"
-              >容量设置</el-button
-            >
+            <strong>容量</strong>
+            <button type="button" @click="router.push('/settings')">
+              管理
+            </button>
           </div>
-        </template>
-        <div class="quota-panel">
-          <el-progress type="dashboard" :percentage="quotaUsage" />
-          <div>
+          <div class="storage-values">
             <strong>{{ formatBytes(stats.usedBytes) }}</strong>
-            <span>总额度 {{ formatBytes(stats.quotaBytes) }}</span>
+            <span>/ {{ formatBytes(stats.quotaBytes) }}</span>
           </div>
-        </div>
-      </el-card>
+          <el-progress
+            :percentage="quotaUsage"
+            :show-text="false"
+            :stroke-width="8"
+          />
+          <small>已使用 {{ quotaUsage }}%</small>
+        </section>
+
+        <section class="dashboard-status">
+          <div class="panel-head"><strong>处理状态</strong></div>
+          <div>
+            <span>等待或处理中</span><strong>{{ stats.pending }}</strong>
+          </div>
+          <div>
+            <span>处理失败</span
+            ><strong :class="{ danger: stats.failed > 0 }">{{
+              stats.failed
+            }}</strong>
+          </div>
+          <div>
+            <span>可正常访问</span><strong>{{ stats.ready }}</strong>
+          </div>
+        </section>
+      </aside>
     </section>
   </div>
 </template>

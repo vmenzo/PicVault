@@ -36,6 +36,7 @@ model User {
   publicId     Int      @unique @default(autoincrement())
   email        String   @unique
   name         String
+  avatarUrl    String?
   passwordHash String
   role         UserRole @default(USER)
   disabled     Boolean  @default(false)

@@ -205,6 +205,7 @@ export class AuthService {
         data: {
           name: dto.name,
           email,
+          avatarUrl: dto.avatarUrl === null ? null : dto.avatarUrl?.trim(),
         },
       })
       .catch((error: unknown) => {
@@ -431,6 +432,7 @@ export class AuthService {
     email: string;
     name: string;
     role: UserRole;
+    avatarUrl?: string | null;
     disabled?: boolean;
     quotaBytes: bigint;
     usedBytes: bigint;
@@ -450,6 +452,7 @@ export class AuthService {
     email: string;
     name: string;
     role: UserRole;
+    avatarUrl?: string | null;
     quotaBytes: bigint;
     usedBytes: bigint;
   }) {
@@ -459,6 +462,7 @@ export class AuthService {
       email: user.email,
       name: user.name,
       role: user.role,
+      avatarUrl: user.avatarUrl ?? null,
       quotaBytes: Number(user.quotaBytes),
       usedBytes: Number(user.usedBytes),
     };
