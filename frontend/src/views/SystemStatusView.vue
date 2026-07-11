@@ -72,7 +72,7 @@ onMounted(load);
 </script>
 
 <template>
-  <div class="page-stack" v-loading="loading">
+  <div class="page-stack system-status-page" v-loading="loading">
     <section class="metrics-grid">
       <el-card shadow="never" class="metric-card">
         <div class="metric-icon">

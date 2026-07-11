@@ -26,11 +26,14 @@ async function copy(value: string) {
 </script>
 
 <template>
-  <div class="content-grid">
+  <div class="content-grid links-workbench">
     <el-card shadow="never" class="panel-card">
       <template #header>
         <div class="panel-head">
-          <strong>链接格式转换</strong>
+          <div class="panel-title-copy">
+            <strong>链接格式转换</strong>
+            <span>输入一次，生成常用发布格式</span>
+          </div>
         </div>
       </template>
       <el-form label-position="top">
@@ -56,7 +59,10 @@ async function copy(value: string) {
     <el-card shadow="never" class="panel-card">
       <template #header>
         <div class="panel-head">
-          <strong>常用场景</strong>
+          <div class="panel-title-copy">
+            <strong>格式指南</strong>
+            <span>根据发布位置选择正确格式</span>
+          </div>
         </div>
       </template>
       <div class="feature-list">

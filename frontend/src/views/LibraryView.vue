@@ -464,6 +464,19 @@ watch(
 <template>
   <div class="page-stack">
     <el-card shadow="never" class="panel-card">
+      <div class="library-toolbar-head">
+        <div>
+          <strong>整理与查找</strong>
+          <span>按相册、状态或标签快速缩小范围</span>
+        </div>
+        <el-button
+          type="primary"
+          :icon="UploadFilled"
+          @click="router.push('/upload')"
+        >
+          上传图片
+        </el-button>
+      </div>
       <div class="toolbar library-toolbar">
         <el-input
           v-model="query.q"
@@ -562,13 +575,6 @@ watch(
         </el-segmented>
         <el-button :icon="Refresh" @click="load">刷新</el-button>
         <el-button @click="resetFilters">重置</el-button>
-        <el-button
-          type="primary"
-          :icon="UploadFilled"
-          @click="router.push('/upload')"
-        >
-          上传图片
-        </el-button>
       </div>
     </el-card>
 
@@ -679,13 +685,16 @@ watch(
     </div>
 
     <div v-if="viewMode === 'grid'" class="image-grid" v-loading="loading">
-      <el-empty v-if="!loading && !images.length" description="暂无图片">
+      <el-empty
+        v-if="!loading && !images.length"
+        description="这里还没有符合条件的图片"
+      >
         <el-button
           type="primary"
           :icon="UploadFilled"
           @click="router.push('/upload')"
         >
-          去上传
+          上传第一张图片
         </el-button>
       </el-empty>
 

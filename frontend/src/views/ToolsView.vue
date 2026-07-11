@@ -128,7 +128,10 @@ function reset() {
       <el-card shadow="never" class="panel-card">
         <template #header>
           <div class="panel-head">
-            <strong>本地图片工具箱</strong>
+            <div class="panel-title-copy">
+              <strong>本地图片工具箱</strong>
+              <span>所有处理均在当前浏览器内完成</span>
+            </div>
             <div class="header-actions">
               <el-button :icon="Refresh" @click="reset">重置</el-button>
               <label class="file-button">

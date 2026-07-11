@@ -77,14 +77,18 @@ onMounted(load);
 
 <template>
   <div class="page-stack">
-    <div class="page-actions">
+    <div class="desktop-page-lead">
+      <div>
+        <strong>相册集合</strong>
+        <span>用相册归档主题图片，不会改变原始文件位置</span>
+      </div>
       <el-button type="primary" :icon="Plus" @click="openCreate"
         >新建相册</el-button
       >
     </div>
 
     <el-card shadow="never" class="panel-card" v-loading="loading">
-      <el-table :data="albums" class="clean-table">
+      <el-table :data="albums" class="clean-table desktop-data-table">
         <el-table-column prop="name" label="相册" min-width="220">
           <template #default="{ row }">
             <div class="album-cell">
@@ -123,12 +127,34 @@ onMounted(load);
           </template>
         </el-table-column>
       </el-table>
+      <div class="mobile-record-list album-mobile-list">
+        <article v-for="album in albums" :key="album.id" class="mobile-record">
+          <div class="mobile-record-head">
+            <div>
+              <strong>{{ album.name }}</strong>
+              <span>{{ album.description || '暂无描述' }}</span>
+            </div>
+            <b>{{ album.imageCount ?? 0 }} 张</b>
+          </div>
+          <dl>
+            <div><dt>可见性</dt><dd>{{ visibilityLabel(album.visibility) }}</dd></div>
+            <div><dt>创建时间</dt><dd>{{ formatDate(album.createdAt) }}</dd></div>
+          </dl>
+          <div class="mobile-record-actions">
+            <el-button :icon="Edit" @click="openEdit(album)">编辑</el-button>
+            <el-button type="danger" plain :icon="Delete" @click="remove(album)">
+              删除
+            </el-button>
+          </div>
+        </article>
+        <el-empty v-if="!loading && !albums.length" description="还没有相册" />
+      </div>
     </el-card>
 
     <el-dialog
       v-model="dialogVisible"
       :title="editingId ? '编辑相册' : '新建相册'"
-      width="460"
+      width="min(460px, calc(100vw - 32px))"
     >
       <el-form label-position="top">
         <el-form-item label="名称">

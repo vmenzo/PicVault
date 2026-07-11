@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { FormInstance, FormRules } from 'element-plus';
 import { ElMessage } from 'element-plus/es/components/message/index';
-import { Grid, Key, Lock, Message } from '@element-plus/icons-vue';
+import { Key, Lock, Message } from '@element-plus/icons-vue';
 import {
   registrationStatusApi,
   requestRegistrationCodeApi,
@@ -220,34 +220,31 @@ function switchRegister() {
 <template>
   <main class="login-page">
     <section class="login-visual">
-      <div class="login-brand-line">
+      <div class="login-panel-brand login-image-brand">
         <div class="brand-mark">
-          <el-icon><Grid /></el-icon>
+          <img src="/picvault-mark.svg" alt="" />
         </div>
         <div>
           <strong>{{ productName }}</strong>
-          <span>Image Hosting Suite</span>
+          <span>图片资产平台</span>
         </div>
       </div>
 
       <div class="login-copy">
-        <span>Commercial Image Hosting</span>
-        <h1>面向团队的图片托管与资产管理平台</h1>
-        <p>集中管理上传、相册、外链、权限、存储与自动化处理流程。</p>
+        <span>你的图片工作空间</span>
+        <h1>存得安心，找得轻松。</h1>
+        <p>从上传到分享，让图片资产始终清楚、有序、随时可用。</p>
       </div>
 
       <div class="login-benefits">
-        <span>Secure Uploads</span>
-        <span>Storage Routing</span>
-        <span>Team Operations</span>
+        <span><b>01</b> 原图安全托管</span>
+        <span><b>02</b> 多格式链接</span>
+        <span><b>03</b> 相册与权限</span>
       </div>
     </section>
 
     <section class="login-panel">
       <el-card class="login-card" shadow="never">
-        <div class="login-lock">
-          <el-icon><Key /></el-icon>
-        </div>
         <div class="login-card-head">
           <h2>{{ title }}</h2>
           <p>{{ subtitle }}</p>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
+import { ArrowRight, Picture, UploadFilled } from '@element-plus/icons-vue';
 import { useRouter } from 'vue-router';
 import { imageStatsApi, listImagesApi } from '@/api/images';
 import ProtectedImage from '@/components/ProtectedImage.vue';
@@ -82,6 +83,45 @@ onMounted(async () => {
 
 <template>
   <div class="page-stack" v-loading="loading">
+    <section class="dashboard-command">
+      <div>
+        <span class="dashboard-command-label">资产工作台</span>
+        <h2>图片都在这里，随取随用。</h2>
+        <p>上传、整理并生成可直接分享的图片链接。</p>
+      </div>
+      <div class="dashboard-command-actions">
+        <el-button :icon="Picture" @click="router.push('/library')">
+          浏览图片库
+        </el-button>
+        <el-button
+          type="primary"
+          :icon="UploadFilled"
+          @click="router.push('/upload')"
+        >
+          上传图片
+        </el-button>
+      </div>
+    </section>
+
+    <section class="dashboard-metrics" aria-label="资产概览">
+      <button type="button" @click="router.push('/library')">
+        <span>全部图片</span><strong>{{ stats.total }}</strong>
+        <small>查看全部资产 <el-icon><ArrowRight /></el-icon></small>
+      </button>
+      <button type="button" @click="openStatus('READY')">
+        <span>可正常访问</span><strong>{{ stats.ready }}</strong>
+        <small>已完成处理</small>
+      </button>
+      <button type="button" @click="openStatus('PROCESSING')">
+        <span>正在处理</span><strong>{{ stats.pending }}</strong>
+        <small>等待生成链接</small>
+      </button>
+      <button type="button" @click="router.push('/albums')">
+        <span>相册</span><strong>{{ stats.albums }}</strong>
+        <small>整理图片集合</small>
+      </button>
+    </section>
+
     <section class="dashboard-workspace">
       <el-card shadow="never" class="panel-card dashboard-chart-card">
         <template #header>

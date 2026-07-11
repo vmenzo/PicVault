@@ -99,14 +99,23 @@ function isRestorable(image: ImageItem) {
     <el-card shadow="never" class="panel-card">
       <template #header>
         <div class="panel-head">
-          <strong>回收站</strong>
-          <el-button :icon="RefreshLeft" @click="load">刷新</el-button>
-          <el-button type="danger" plain :icon="Delete" @click="emptyExpired">
-            清理过期图片
-          </el-button>
+          <div class="panel-title-copy">
+            <strong>待删除图片</strong>
+            <span>图片保留 {{ retentionDays }} 天，期间可以恢复</span>
+          </div>
+          <div class="header-actions">
+            <el-button :icon="RefreshLeft" @click="load">刷新</el-button>
+            <el-button type="danger" plain :icon="Delete" @click="emptyExpired">
+              清理过期图片
+            </el-button>
+          </div>
         </div>
       </template>
-      <el-table :data="images" v-loading="loading" class="clean-table">
+      <el-table
+        :data="images"
+        v-loading="loading"
+        class="clean-table desktop-data-table"
+      >
         <el-table-column label="图片" min-width="280">
           <template #default="{ row }">
             <div class="image-row">
@@ -147,8 +156,37 @@ function isRestorable(image: ImageItem) {
           </template>
         </el-table-column>
       </el-table>
+      <div class="mobile-record-list trash-mobile-list" v-loading="loading">
+        <article v-for="image in images" :key="image.id" class="mobile-record trash-record">
+          <ProtectedImage :image="image" :alt="image.title" />
+          <div class="trash-record-body">
+            <div class="mobile-record-head">
+              <div>
+                <strong>{{ image.title }}</strong>
+                <span>{{ image.originalName }}</span>
+              </div>
+            </div>
+            <dl>
+              <div><dt>大小</dt><dd>{{ formatBytes(image.sizeBytes) }}</dd></div>
+              <div><dt>删除时间</dt><dd>{{ formatDate(image.updatedAt || image.createdAt) }}</dd></div>
+            </dl>
+            <div class="mobile-record-actions">
+              <el-button
+                :icon="RefreshLeft"
+                :disabled="!isRestorable(image)"
+                @click="restore(image)"
+              >恢复</el-button>
+              <el-button type="danger" plain :icon="Delete" @click="remove(image)">
+                永久删除
+              </el-button>
+            </div>
+          </div>
+        </article>
+        <el-empty v-if="!loading && !images.length" description="回收站是空的" />
+      </div>
       <div class="table-pagination">
         <el-pagination
+          class="desktop-pagination"
           background
           layout="total, sizes, prev, pager, next"
           :total="total"
@@ -157,6 +195,15 @@ function isRestorable(image: ImageItem) {
           :page-sizes="[20, 50, 100]"
           @update:current-page="changePage"
           @update:page-size="changePageSize"
+        />
+        <el-pagination
+          class="mobile-pagination"
+          simple
+          layout="prev, pager, next"
+          :total="total"
+          :current-page="page"
+          :page-size="pageSize"
+          @update:current-page="changePage"
         />
       </div>
     </el-card>

@@ -4,11 +4,11 @@ import {
   Delete,
   DataBoard,
   Folder,
-  Grid,
   House,
   Key,
   Link,
   Menu,
+  Plus,
   Picture,
   Search,
   SetUp,
@@ -138,7 +138,7 @@ function handleUserCommand(command: string) {
         @click="go('/dashboard')"
       >
         <div class="brand-mark">
-          <el-icon><Grid /></el-icon>
+          <img src="/picvault-mark.svg" alt="" />
         </div>
         <div>
           <strong>PicVault</strong>
@@ -147,7 +147,7 @@ function handleUserCommand(command: string) {
       </button>
 
       <button class="sidebar-upload" type="button" @click="go('/upload')">
-        <el-icon><UploadFilled /></el-icon>
+        <el-icon><Plus /></el-icon>
         <span>上传新图片</span>
       </button>
 
@@ -224,6 +224,14 @@ function handleUserCommand(command: string) {
           </el-input>
           <el-button :icon="Link" @click="router.push('/links')">
             链接
+          </el-button>
+          <el-button
+            class="header-upload-button"
+            type="primary"
+            :icon="UploadFilled"
+            @click="router.push('/upload')"
+          >
+            上传
           </el-button>
           <el-dropdown trigger="click" @command="handleUserCommand">
             <button class="user-button">

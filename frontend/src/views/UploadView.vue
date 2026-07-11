@@ -565,7 +565,10 @@ onUnmounted(() => {
       <el-card shadow="never" class="upload-card">
         <template #header>
           <div class="panel-head">
-            <strong>上传工作台</strong>
+            <div class="upload-card-title">
+              <strong>选择图片</strong>
+              <span>先设置归档方式，再拖入图片或粘贴截图</span>
+            </div>
             <el-tag type="success">{{ storageTargetLabel }}</el-tag>
           </div>
         </template>
@@ -611,7 +614,8 @@ onUnmounted(() => {
         >
           <el-icon class="el-icon--upload"><UploadFilled /></el-icon>
           <div class="el-upload__text">
-            拖拽图片到这里，点击选择，或直接粘贴截图
+            <strong>拖入图片开始上传</strong>
+            <span>也可以点击选择文件，或直接粘贴截图</span>
           </div>
           <template #tip>
             <div class="el-upload__tip">
