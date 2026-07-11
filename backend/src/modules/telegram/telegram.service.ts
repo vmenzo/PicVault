@@ -68,6 +68,7 @@ type TelegramPreview = {
   contentType: string;
   imageUrl?: string;
   shareUrl?: string;
+  returnAction?: 'library' | 'trash';
 };
 
 type TelegramUrlSetting = {
@@ -661,23 +662,31 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
     return {
       text: [
-        'PicVault 控制台',
+        '<b>PicVault 控制台</b>',
         '',
-        '实时文字台',
-        `${user.name} · ${formatUserPublicId(user.publicId)}`,
-        `邮箱：${user.email}`,
-        `轮询：${this.running ? '运行中' : '待命'} · 最近：${
-          this.lastPollAt ? this.formatDateTime(this.lastPollAt) : '暂无'
-        }`,
-        this.lastError ? `错误：${this.lastError}` : '错误：无',
-        `容量：${this.formatBytes(Number(user.usedBytes))} / ${this.formatBytes(
+        `<b>${this.escapeHtml(user.name)}</b> · ${formatUserPublicId(user.publicId)}`,
+        `<code>${this.escapeHtml(user.email)}</code>`,
+        '',
+        '<b>资产概况</b>',
+        `可访问 ${countMap.get(ImageStatus.READY) ?? 0}  ·  处理中 ${
+          countMap.get(ImageStatus.PROCESSING) ?? 0
+        }  ·  失败 ${countMap.get(ImageStatus.FAILED) ?? 0}`,
+        `容量 ${this.formatBytes(Number(user.usedBytes))} / ${this.formatBytes(
           Number(user.quotaBytes),
         )}`,
-        `图片：${countMap.get(ImageStatus.READY) ?? 0} 可访问，${
-          countMap.get(ImageStatus.PROCESSING) ?? 0
-        } 处理中，${countMap.get(ImageStatus.FAILED) ?? 0} 失败`,
-        `默认可见性：${this.visibilityText(setting.defaultVisibility)}`,
+        `默认上传 ${this.storageProviderText(setting)} · ${this.visibilityText(
+          setting.defaultVisibility,
+        )}`,
+        '',
+        '<b>服务状态</b>',
+        `Bot ${this.running ? '轮询中' : '待命'} · ${
+          this.lastPollAt ? this.formatDateTime(this.lastPollAt) : '尚未轮询'
+        }`,
+        this.lastError
+          ? `异常 ${this.escapeHtml(this.truncateButtonText(this.lastError, 80))}`
+          : '异常 无',
       ].join('\n'),
+      parseMode: 'HTML',
       keyboard: this.mainKeyboard(),
     };
   }
@@ -689,20 +698,29 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const stats = await this.imageStats(ownerId);
     return {
       text: [
-        '系统状态',
+        '<b>状态中心</b>',
         '',
-        `存储：${setting.storageProvider}`,
-        `单图上限：${this.formatBytes(setting.maxSizeBytes)}`,
-        `默认可见性：${this.visibilityText(setting.defaultVisibility)}`,
-        `API 上传：${setting.apiUpload ? '开启' : '关闭'}`,
-        `图片：${stats.total} 总数，${stats.ready} 可访问，${stats.pending} 待处理，${stats.failed} 失败，${stats.deleted} 回收站`,
-        `容量：${this.formatBytes(stats.usedBytes)} / ${this.formatBytes(
+        '<b>图片</b>',
+        `全部 ${stats.total}  ·  可访问 ${stats.ready}`,
+        `处理中 ${stats.pending}  ·  失败 ${stats.failed}  ·  回收站 ${stats.deleted}`,
+        '',
+        '<b>存储与上传</b>',
+        `${this.storageProviderText(setting)}`,
+        `容量 ${this.formatBytes(stats.usedBytes)} / ${this.formatBytes(
           stats.quotaBytes,
         )}`,
+        `单图上限 ${this.formatBytes(setting.maxSizeBytes)}`,
+        `默认 ${this.visibilityText(setting.defaultVisibility)} · API 上传 ${
+          setting.apiUpload ? '已开启' : '已关闭'
+        }`,
       ].join('\n'),
+      parseMode: 'HTML',
       keyboard: [
-        [{ text: '刷新', callback_data: 'pv:status' }],
-        [{ text: '返回', callback_data: 'pv:home' }],
+        [
+          { text: '刷新状态', callback_data: 'pv:status' },
+          { text: '上传设置', callback_data: 'pv:location' },
+        ],
+        [{ text: '返回控制台', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -904,11 +922,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
           { text: '复制 BBCode', copy_text: { text: bbcode } },
         ],
         ...recentRows,
-        [{ text: '返回', callback_data: 'pv:home' }],
+        [{ text: '返回控制台', callback_data: 'pv:home' }],
       ],
-      previews: [this.previewForImage(ownerId, image, setting)].filter(
-        (preview): preview is TelegramPreview => Boolean(preview),
-      ),
     };
   }
 
@@ -954,24 +969,27 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     const dimensions =
       image.width && image.height ? `${image.width}x${image.height}` : '未知';
     const links = this.publicLinksForImage(image, setting);
+    const markdown = links.imageUrl ? `![${title}](${links.imageUrl})` : '';
+    const returnAction: 'library' | 'trash' =
+      image.status === ImageStatus.DELETED ? 'trash' : 'library';
+    const preview = this.previewForImage(ownerId, image, setting);
 
     return {
       text: [
-        '图片详情',
+        '<b>图片详情</b>',
         '',
-        this.escapeHtml(title),
-        `文件：${this.escapeHtml(image.originalName)}`,
-        `状态：${this.statusText(image.status)} · ${this.visibilityText(
+        `<b>${this.escapeHtml(title)}</b>`,
+        `<code>${this.escapeHtml(image.originalName)}</code>`,
+        '',
+        `状态  ${this.statusText(image.status)} · ${this.visibilityText(
           image.visibility,
         )}`,
-        `尺寸：${dimensions} · 大小：${this.formatBytes(
-          Number(image.sizeBytes),
-        )}`,
-        `相册：${this.escapeHtml(image.album?.name ?? '未归档')}`,
-        `上传：${this.formatDateTime(image.createdAt)}`,
+        `规格  ${dimensions} · ${this.formatBytes(Number(image.sizeBytes))}`,
+        `相册  ${this.escapeHtml(image.album?.name ?? '未归档')}`,
+        `上传  ${this.formatDateTime(image.createdAt)}`,
+        '',
         this.publicLinkCopyLine(image, setting),
-        links.shareUrl ? `分享页： ${this.copyCode(links.shareUrl)}` : '',
-        this.nodeSeekCopyLine(links.imageUrl),
+        links.shareUrl ? `分享页：${this.copyCode(links.shareUrl)}` : '',
       ]
         .filter(Boolean)
         .join('\n'),
@@ -983,13 +1001,19 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
                 { text: '打开图片', url: links.imageUrl },
                 { text: '分享页', url: links.shareUrl },
               ],
+              [
+                { text: '复制直链', copy_text: { text: links.imageUrl } },
+                { text: '复制 Markdown', copy_text: { text: markdown } },
+              ],
             ]
           : []),
-        [{ text: '返回', callback_data: 'pv:home' }],
+        [
+          { text: '链接格式', callback_data: `pv:link:${image.id}` },
+          { text: '刷新详情', callback_data: `pv:img:${image.id}` },
+        ],
+        [{ text: '返回列表', callback_data: `pv:${returnAction}` }],
       ],
-      previews: [this.previewForImage(ownerId, image, setting)].filter(
-        (preview): preview is TelegramPreview => Boolean(preview),
-      ),
+      previews: preview ? [{ ...preview, returnAction }] : undefined,
     };
   }
 
@@ -998,7 +1022,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   ): InlineKeyboardButton[][] {
     return images.slice(0, 8).map((image, index) => [
       {
-        text: `查看第 ${index + 1} 张：${this.truncateButtonText(
+        text: `${index + 1}. ${this.truncateButtonText(
           image.title || image.originalName,
         )}`,
         callback_data: `pv:img:${image.id}`,
@@ -1041,8 +1065,9 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     return {
       text:
         images.length > 0
-          ? '图片库\n\n选择下面的图片查看详情。'
-          : '图片库\n\n暂无图片。',
+          ? '<b>图片库</b>\n\n选择图片查看详情和预览，图片消息可返回列表。'
+          : '<b>图片库</b>\n\n暂无图片。',
+      parseMode: 'HTML',
       keyboard: [
         ...this.imageViewRows(images),
         [
@@ -1052,7 +1077,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
             url: new URL('/library', this.publicAppUrl(setting)).toString(),
           },
         ],
-        [{ text: '返回', callback_data: 'pv:home' }],
+        [{ text: '返回控制台', callback_data: 'pv:home' }],
       ],
     };
   }
@@ -1741,28 +1766,32 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   private mainKeyboard(): InlineKeyboardButton[][] {
     return [
       [
-        { text: '状态中心', callback_data: 'pv:status' },
         { text: '图片库', callback_data: 'pv:library' },
+        { text: '最近图片', callback_data: 'pv:recent' },
       ],
       [
         { text: '搜索图片', callback_data: 'pv:search' },
-        { text: '链接抓图', callback_data: 'pv:grab' },
-      ],
-      [
-        { text: '上传位置', callback_data: 'pv:location' },
-        { text: '相册', callback_data: 'pv:albums' },
-      ],
-      [
-        { text: 'API 密钥', callback_data: 'pv:keys' },
-        { text: '回收站', callback_data: 'pv:trash' },
-      ],
-      [
-        { text: '集成状态', callback_data: 'pv:integrations' },
         { text: '链接格式', callback_data: 'pv:links' },
       ],
       [
-        { text: '刷新', callback_data: 'pv:refresh' },
+        { text: '链接抓图', callback_data: 'pv:grab' },
+        { text: '上传位置', callback_data: 'pv:location' },
+      ],
+      [
+        { text: '相册', callback_data: 'pv:albums' },
+        { text: '回收站', callback_data: 'pv:trash' },
+      ],
+      [
+        { text: '状态中心', callback_data: 'pv:status' },
+        { text: '上传策略', callback_data: 'pv:policy' },
+      ],
+      [
+        { text: 'API 密钥', callback_data: 'pv:keys' },
+        { text: '集成状态', callback_data: 'pv:integrations' },
+      ],
+      [
         { text: '站点入口', callback_data: 'pv:site' },
+        { text: '刷新控制台', callback_data: 'pv:refresh' },
       ],
     ];
   }
@@ -1865,10 +1894,21 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       .filter(Boolean)
       .join('\n')
       .slice(0, 1024);
-    const replyMarkup = preview.shareUrl
-      ? {
-          inline_keyboard: [[{ text: '分享页', url: preview.shareUrl }]],
-        }
+    const previewButtons: InlineKeyboardButton[][] = [];
+    if (preview.shareUrl) {
+      previewButtons.push([{ text: '打开分享页', url: preview.shareUrl }]);
+    }
+    if (preview.returnAction) {
+      previewButtons.push([
+        {
+          text: preview.returnAction === 'trash' ? '返回回收站' : '返回图片库',
+          callback_data: `pv:${preview.returnAction}`,
+        },
+        { text: '返回控制台', callback_data: 'pv:home' },
+      ]);
+    }
+    const replyMarkup = previewButtons.length
+      ? { inline_keyboard: previewButtons }
       : undefined;
 
     if (preview.imageUrl) {
@@ -2163,11 +2203,18 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     image: { storageKey: string; storageProvider: StorageProvider },
     setting?: TelegramUrlSetting,
   ) {
-    const base = this.publicImageBaseUrl({
-      ...setting,
-      storageProvider: image.storageProvider,
+    if (image.storageProvider === StorageProvider.LOCAL) {
+      return new URL(
+        this.storage.getObjectUrlPath(image.storageKey),
+        this.publicAppUrl(setting),
+      ).toString();
+    }
+
+    const publicUrl = this.storage.getPublicUrlWithBase(image.storageKey, {
+      storageProvider: StorageProvider.S3,
+      publicBaseUrl: setting?.publicBaseUrl,
     });
-    return `${base.replace(/\/$/, '')}/${image.storageKey}`;
+    return this.normalizePublicBaseUrl(publicUrl, '', setting?.appPublicUrl);
   }
 
   private publicAppUrl(setting?: TelegramUrlSetting) {
