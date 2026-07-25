@@ -553,6 +553,9 @@ onMounted(load);
           <el-switch v-model="security.apiUpload" active-text="允许 API 上传" />
         </div>
         <el-form label-position="top" class="settings-followup">
+          <div class="form-help">
+            原图会按上传文件原样保存；这些处理选项只应用于缩略图和格式变体。
+          </div>
           <el-form-item v-if="processing.watermark" label="水印文字">
             <el-input v-model="processing.watermarkText" />
           </el-form-item>

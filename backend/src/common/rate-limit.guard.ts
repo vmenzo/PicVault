@@ -5,51 +5,50 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import Redis from 'ioredis';
 import { clientIp } from './request-meta';
 
-type HitBucket = {
-  count: number;
-  resetAt: number;
-};
+const RATE_LIMIT_SCRIPT = `
+local count = redis.call('INCR', KEYS[1])
+if count == 1 then
+  redis.call('PEXPIRE', KEYS[1], ARGV[1])
+end
+return count
+`;
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
-  private readonly buckets = new Map<string, HitBucket>();
+  private readonly redis: Redis;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(private readonly config: ConfigService) {
+    this.redis = new Redis({
+      host: config.get<string>('REDIS_HOST') ?? 'localhost',
+      port: Number(config.get<string | number>('REDIS_PORT') ?? 6379),
+      lazyConnect: true,
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+    });
+  }
 
-  canActivate(context: ExecutionContext) {
+  async canActivate(context: ExecutionContext) {
     const request = context.switchToHttp().getRequest();
     const windowMs = Number(
       this.config.get<string>('RATE_LIMIT_WINDOW_MS') ?? 60000,
     );
     const max = Number(this.config.get<string>('RATE_LIMIT_MAX') ?? 240);
-    const key = `${clientIp(request)}:${request.method}:${request.route?.path ?? request.url}`;
-    const now = Date.now();
-    const bucket = this.buckets.get(key);
-
-    if (!bucket || bucket.resetAt <= now) {
-      this.buckets.set(key, { count: 1, resetAt: now + windowMs });
-      return true;
+    const route = request.route?.path ?? request.path ?? request.url;
+    const key = `rate-limit:${clientIp(request)}:${request.method}:${route}`;
+    if (this.redis.status === 'wait') {
+      await this.redis.connect();
     }
 
-    bucket.count += 1;
-    if (bucket.count > max) {
+    const count = Number(
+      await this.redis.eval(RATE_LIMIT_SCRIPT, 1, key, String(windowMs)),
+    );
+    if (count > max) {
       throw new HttpException('Too many requests', 429);
     }
 
-    if (this.buckets.size > 10000) {
-      this.cleanup(now);
-    }
-
     return true;
-  }
-
-  private cleanup(now: number) {
-    for (const [key, bucket] of this.buckets.entries()) {
-      if (bucket.resetAt <= now) {
-        this.buckets.delete(key);
-      }
-    }
   }
 }

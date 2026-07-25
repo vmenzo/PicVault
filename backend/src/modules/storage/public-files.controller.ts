@@ -55,7 +55,7 @@ export class PublicFilesController {
 
     response.set({
       'Content-Type': lookup(key) || 'application/octet-stream',
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Cache-Control': 'public, max-age=300',
     });
 
     return new StreamableFile(stream);

@@ -48,8 +48,10 @@ const tags = ref<{ name: string; count: number }[]>([]);
 const total = ref(0);
 const selectedIds = ref<string[]>([]);
 const detailVisible = ref(false);
+const previewVisible = ref(false);
 const bulkLinksVisible = ref(false);
 const selectedImage = ref<ImageItem | null>(null);
+const previewImage = ref<ImageItem | null>(null);
 const viewMode = ref<'grid' | 'table'>('grid');
 const linkFormat = ref<
   'url' | 'markdown' | 'html' | 'bbcode' | 'share' | 'download'
@@ -177,6 +179,11 @@ function openDetail(image: ImageItem) {
   editForm.tags = [...(image.tags ?? [])];
   editForm.favorite = image.favorite;
   detailVisible.value = true;
+}
+
+function openPreview(image: ImageItem) {
+  previewImage.value = image;
+  previewVisible.value = true;
 }
 
 function linkFormats(image: ImageItem) {
@@ -705,7 +712,15 @@ watch(
         class="image-card"
         :class="{ selected: selectedIds.includes(image.id) }"
       >
-        <div class="image-thumb" @click="openDetail(image)">
+        <div
+          class="image-thumb"
+          role="button"
+          tabindex="0"
+          :aria-label="`查看 ${image.title} 原图`"
+          @click="openPreview(image)"
+          @keydown.enter="openPreview(image)"
+          @keydown.space.prevent="openPreview(image)"
+        >
           <ProtectedImage :image="image" :alt="image.title" />
           <el-icon v-if="image.favorite" class="favorite-badge"
             ><Star
@@ -805,7 +820,15 @@ watch(
         </el-table-column>
         <el-table-column label="图片" min-width="280">
           <template #default="{ row }">
-            <div class="image-row">
+            <div
+              class="image-row image-row-preview"
+              role="button"
+              tabindex="0"
+              :aria-label="`查看 ${row.title} 原图`"
+              @click="openPreview(row)"
+              @keydown.enter="openPreview(row)"
+              @keydown.space.prevent="openPreview(row)"
+            >
               <ProtectedImage :image="row" :alt="row.title" />
               <div>
                 <strong>{{ row.title }}</strong>
@@ -886,6 +909,35 @@ watch(
       :total="total"
       @change="load"
     />
+
+    <el-dialog
+      v-model="previewVisible"
+      class="image-preview-dialog"
+      width="min(1120px, 94vw)"
+      align-center
+      destroy-on-close
+      append-to-body
+      :show-close="true"
+      @closed="previewImage = null"
+    >
+      <div v-if="previewImage" class="image-preview-stage">
+        <ProtectedImage
+          class="image-preview-original"
+          :image="previewImage"
+          :alt="previewImage.title"
+          variant="original"
+        />
+      </div>
+      <template v-if="previewImage" #footer>
+        <div class="image-preview-caption">
+          <strong>{{ previewImage.title }}</strong>
+          <span>
+            {{ previewImage.width || '-' }} × {{ previewImage.height || '-' }}
+            · {{ formatBytes(previewImage.sizeBytes) }}
+          </span>
+        </div>
+      </template>
+    </el-dialog>
 
     <el-drawer v-model="detailVisible" title="图片详情" size="520px">
       <div v-if="selectedImage" class="image-detail">

@@ -172,8 +172,7 @@ export class StorageService implements OnModuleInit {
         ContentLength:
           input.contentLength ??
           (Buffer.isBuffer(input.body) ? input.body.length : undefined),
-        CacheControl:
-          input.cacheControl ?? 'public, max-age=31536000, immutable',
+        CacheControl: input.cacheControl ?? 'public, max-age=300',
       }),
     );
 

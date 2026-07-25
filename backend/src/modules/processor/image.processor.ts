@@ -2,7 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import sharp = require('sharp');
-import { ImageStatus, StorageProvider } from '@prisma/client';
+import { ImageStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import {
@@ -33,8 +33,6 @@ export class ImageProcessor extends WorkerHost {
         ownerId: true,
         storageProvider: true,
         storageKey: true,
-        mimeType: true,
-        sizeBytes: true,
         status: true,
         uploadedAt: true,
       },
@@ -71,7 +69,6 @@ export class ImageProcessor extends WorkerHost {
       const updates: {
         width?: number;
         height?: number;
-        sizeBytes?: bigint;
         publicUrl?: string;
         thumbKey?: string;
         thumbUrl?: string;
@@ -88,33 +85,13 @@ export class ImageProcessor extends WorkerHost {
       };
 
       const stem = image.storageKey.replace(/\.[^.]+$/, '');
-      const shouldGenerateVariants =
-        image.storageProvider !== StorageProvider.S3;
       const transformer = () =>
         this.applyImageOptions(
           sharp(input, { failOn: 'none' }).rotate(),
           setting,
         );
 
-      if (this.shouldRewriteOriginal(image.mimeType, setting)) {
-        const processed = await this.encodeOriginal(
-          transformer(),
-          image.mimeType,
-        );
-        if (processed) {
-          await this.storage.putObject({
-            key: image.storageKey,
-            body: processed.data,
-            contentType: image.mimeType,
-            setting,
-          });
-          updates.width = processed.info.width;
-          updates.height = processed.info.height;
-          updates.sizeBytes = BigInt(processed.data.length);
-        }
-      }
-
-      if (shouldGenerateVariants && setting.generateThumbnail) {
+      if (setting.generateThumbnail) {
         const thumbKey = `${stem}.thumb.webp`;
         const thumb = await transformer()
           .resize({
@@ -137,7 +114,7 @@ export class ImageProcessor extends WorkerHost {
         updates.thumbUrl = this.storage.getPublicUrlWithBase(thumbKey, setting);
       }
 
-      if (shouldGenerateVariants && setting.generateWebp) {
+      if (setting.generateWebp) {
         const webpKey = `${stem}.webp`;
         const webp = await transformer().webp({ quality: 84 }).toBuffer();
         await this.storage.putObject({
@@ -151,7 +128,7 @@ export class ImageProcessor extends WorkerHost {
         updates.webpUrl = this.storage.getPublicUrlWithBase(webpKey, setting);
       }
 
-      if (shouldGenerateVariants && setting.generateAvif) {
+      if (setting.generateAvif) {
         const avifKey = `${stem}.avif`;
         const avif = await transformer().avif({ quality: 55 }).toBuffer();
         await this.storage.putObject({
@@ -165,10 +142,6 @@ export class ImageProcessor extends WorkerHost {
         updates.avifUrl = this.storage.getPublicUrlWithBase(avifKey, setting);
       }
 
-      const sizeDelta =
-        updates.sizeBytes !== undefined && updates.sizeBytes !== image.sizeBytes
-          ? updates.sizeBytes - image.sizeBytes
-          : BigInt(0);
       const persistedResult = await this.prisma.$transaction(async (tx) => {
         const result = await tx.image.updateMany({
           where: {
@@ -178,17 +151,6 @@ export class ImageProcessor extends WorkerHost {
           },
           data: updates,
         });
-
-        if (result.count === 1 && sizeDelta !== BigInt(0)) {
-          await tx.user.update({
-            where: { id: image.ownerId },
-            data: {
-              usedBytes: {
-                increment: sizeDelta,
-              },
-            },
-          });
-        }
 
         return result;
       });
@@ -294,60 +256,6 @@ export class ImageProcessor extends WorkerHost {
         gravity: 'southeast',
       },
     ]);
-  }
-
-  private shouldRewriteOriginal(
-    mimeType: string,
-    setting: {
-      stripMetadata: boolean;
-      watermark: boolean;
-      watermarkText: string;
-    },
-  ) {
-    if (mimeType === 'image/gif') {
-      return false;
-    }
-
-    if (
-      !['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(
-        mimeType,
-      )
-    ) {
-      return false;
-    }
-
-    return (
-      setting.stripMetadata ||
-      (setting.watermark && !!setting.watermarkText.trim())
-    );
-  }
-
-  private encodeOriginal(pipeline: sharp.Sharp, mimeType: string) {
-    if (mimeType === 'image/jpeg') {
-      return pipeline.jpeg({ quality: 90, mozjpeg: true }).toBuffer({
-        resolveWithObject: true,
-      });
-    }
-
-    if (mimeType === 'image/png') {
-      return pipeline.png({ compressionLevel: 9 }).toBuffer({
-        resolveWithObject: true,
-      });
-    }
-
-    if (mimeType === 'image/webp') {
-      return pipeline.webp({ quality: 90 }).toBuffer({
-        resolveWithObject: true,
-      });
-    }
-
-    if (mimeType === 'image/avif') {
-      return pipeline.avif({ quality: 65 }).toBuffer({
-        resolveWithObject: true,
-      });
-    }
-
-    return null;
   }
 
   private escapeXml(value: string) {
