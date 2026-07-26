@@ -12,6 +12,7 @@ import {
   Search,
   Star,
   UploadFilled,
+  View,
 } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus/es/components/message/index';
 import { ElMessageBox } from 'element-plus/es/components/message-box/index';
@@ -52,6 +53,7 @@ const previewVisible = ref(false);
 const bulkLinksVisible = ref(false);
 const selectedImage = ref<ImageItem | null>(null);
 const previewImage = ref<ImageItem | null>(null);
+const previewVariant = ref<'thumb' | 'original' | 'webp'>('webp');
 const viewMode = ref<'grid' | 'table'>('grid');
 const linkFormat = ref<
   'url' | 'markdown' | 'html' | 'bbcode' | 'share' | 'download'
@@ -183,7 +185,22 @@ function openDetail(image: ImageItem) {
 
 function openPreview(image: ImageItem) {
   previewImage.value = image;
+  previewVariant.value = image.webpUrl
+    ? 'webp'
+    : image.thumbUrl
+      ? 'thumb'
+      : 'original';
   previewVisible.value = true;
+}
+
+function toggleOriginalPreview() {
+  if (!previewImage.value) return;
+  previewVariant.value =
+    previewVariant.value === 'original'
+      ? previewImage.value.webpUrl
+        ? 'webp'
+        : 'thumb'
+      : 'original';
 }
 
 function linkFormats(image: ImageItem) {
@@ -925,16 +942,28 @@ watch(
           class="image-preview-original"
           :image="previewImage"
           :alt="previewImage.title"
-          variant="original"
+          :variant="previewVariant"
         />
       </div>
       <template v-if="previewImage" #footer>
         <div class="image-preview-caption">
           <strong>{{ previewImage.title }}</strong>
-          <span>
-            {{ previewImage.width || '-' }} × {{ previewImage.height || '-' }}
-            · {{ formatBytes(previewImage.sizeBytes) }}
-          </span>
+          <div class="image-preview-controls">
+            <span>
+              {{ previewVariant === 'original' ? '原图' : '快速预览' }} ·
+              {{ previewImage.width || '-' }} × {{ previewImage.height || '-' }}
+              · {{ formatBytes(previewImage.sizeBytes) }}
+            </span>
+            <el-button
+              size="small"
+              :icon="View"
+              @click="toggleOriginalPreview"
+            >
+              {{
+                previewVariant === 'original' ? '返回快速预览' : '查看原图'
+              }}
+            </el-button>
+          </div>
         </div>
       </template>
     </el-dialog>

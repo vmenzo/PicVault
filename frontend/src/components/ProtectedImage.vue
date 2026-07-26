@@ -28,10 +28,13 @@ function isPublicAsset(image: ImageItem) {
 }
 
 function directUrl(image: ImageItem) {
-  const candidate =
-    props.variant === 'original'
-      ? image.publicUrl
-      : image.thumbUrl || image.publicUrl;
+  const candidates = {
+    thumb: image.thumbUrl || image.publicUrl,
+    original: image.publicUrl,
+    webp: image.webpUrl || image.publicUrl,
+    avif: image.avifUrl || image.publicUrl,
+  };
+  const candidate = candidates[props.variant];
   return candidate ? toAbsoluteUrl(candidate) : '';
 }
 
@@ -72,6 +75,8 @@ watch(
     props.image.status,
     props.image.visibility,
     props.image.thumbUrl,
+    props.image.webpUrl,
+    props.image.avifUrl,
     props.image.publicUrl,
     props.variant,
   ],

@@ -3788,6 +3788,27 @@ a:focus-visible,
   font-size: 13px;
 }
 
+.image-preview-controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+}
+
+.image-preview-controls .el-button {
+  min-height: 36px;
+  border-color: #596166;
+  color: #ffffff;
+  background: #303538;
+}
+
+.image-preview-controls .el-button:hover,
+.image-preview-controls .el-button:focus-visible {
+  border-color: #778187;
+  color: #ffffff;
+  background: #41474b;
+}
+
 .image-meta {
   padding: 14px 14px 6px;
 }
@@ -4099,6 +4120,13 @@ a:focus-visible,
     align-items: flex-start;
     flex-direction: column;
     gap: 4px;
+  }
+
+  .image-preview-controls {
+    width: 100%;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
   }
 
   .upload-options {
