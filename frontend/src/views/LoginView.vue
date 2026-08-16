@@ -25,6 +25,7 @@ let codeTimer: number | undefined;
 const mode = ref<AuthMode>('login');
 const allowRegister = ref(false);
 const firstUser = ref(false);
+const emailVerificationRequired = ref(true);
 const form = reactive({
   email: '',
   password: '',
@@ -73,7 +74,8 @@ const rules = computed<FormRules>(() => ({
   ],
   verificationCode: [
     {
-      required: mode.value === 'register',
+      required:
+        mode.value === 'register' && emailVerificationRequired.value,
       message: '请输入邮箱验证码',
       trigger: 'blur',
     },
@@ -117,6 +119,7 @@ async function loadRegistrationStatus() {
     const status = await registrationStatusApi();
     firstUser.value = status.firstUser;
     allowRegister.value = status.registrationEnabled;
+    emailVerificationRequired.value = status.emailVerificationRequired;
   } catch {
     firstUser.value = false;
     allowRegister.value = false;
@@ -140,7 +143,9 @@ async function submit() {
       await auth.register({
         email: form.email,
         password: form.password,
-        verificationCode: form.verificationCode,
+        verificationCode: emailVerificationRequired.value
+          ? form.verificationCode
+          : undefined,
       });
       ElMessage.success('已进入控制台');
       router.push('/dashboard');
@@ -301,7 +306,7 @@ function switchRegister() {
           </el-form-item>
 
           <el-form-item
-            v-if="mode === 'register'"
+            v-if="mode === 'register' && emailVerificationRequired"
             label="邮箱验证码"
             prop="verificationCode"
           >

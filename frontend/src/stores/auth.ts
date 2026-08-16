@@ -19,7 +19,7 @@ export const useAuthStore = defineStore('auth', {
     async register(payload: {
       email: string;
       password: string;
-      verificationCode: string;
+      verificationCode?: string;
     }) {
       const session = await registerApi(payload);
       this.setSession(session.accessToken, session.user);

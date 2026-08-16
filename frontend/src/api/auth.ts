@@ -13,7 +13,7 @@ export function loginApi(payload: { email: string; password: string }) {
 export function registerApi(payload: {
   email: string;
   password: string;
-  verificationCode: string;
+  verificationCode?: string;
 }) {
   return http.post<unknown, AuthResponse>('/auth/register', payload);
 }
@@ -28,7 +28,11 @@ export function requestRegistrationCodeApi(payload: { email: string }) {
 export function registrationStatusApi() {
   return http.get<
     unknown,
-    { firstUser: boolean; registrationEnabled: boolean }
+    {
+      firstUser: boolean;
+      registrationEnabled: boolean;
+      emailVerificationRequired: boolean;
+    }
   >('/auth/registration-status');
 }
 

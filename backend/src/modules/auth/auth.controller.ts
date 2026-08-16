@@ -41,14 +41,17 @@ export class AuthController {
 
   @Get('registration-status')
   async registrationStatus() {
-    const [userCount, registrationEnabled] = await Promise.all([
-      this.prisma.user.count(),
-      this.auth.registrationEnabled(),
-    ]);
+    const [userCount, registrationEnabled, smtpConfigured] =
+      await Promise.all([
+        this.prisma.user.count(),
+        this.auth.registrationEnabled(),
+        this.auth.registrationVerificationRequired(),
+      ]);
 
     return {
       firstUser: userCount === 0,
       registrationEnabled,
+      emailVerificationRequired: userCount > 0 || smtpConfigured,
     };
   }
 

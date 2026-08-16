@@ -195,6 +195,10 @@ export class MailService {
     };
   }
 
+  async isRegistrationVerificationRequired() {
+    return (await this.getEffectiveSettings()) !== null;
+  }
+
   private async send(
     settings: EffectiveMailSettings,
     message: {

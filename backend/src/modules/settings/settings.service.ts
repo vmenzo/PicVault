@@ -183,7 +183,10 @@ export class SettingsService {
       orderBy: { updatedAt: 'desc' },
       select: { registrationEnabled: true },
     });
-    return setting?.registrationEnabled ?? false;
+    return (
+      setting?.registrationEnabled ??
+      (this.config.get<string>('ALLOW_REGISTER') ?? 'false') === 'true'
+    );
   }
 
   private toData(): Prisma.AppSettingUncheckedUpdateInput;

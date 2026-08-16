@@ -44,6 +44,10 @@ export class AuthService {
     return this.settings.isRegistrationEnabled();
   }
 
+  registrationVerificationRequired() {
+    return this.mail.isRegistrationVerificationRequired();
+  }
+
   async requestRegistrationCode(
     dto: RequestRegistrationCodeDto,
     request: Request,
@@ -114,7 +118,18 @@ export class AuthService {
 
   async register(dto: RegisterDto) {
     const email = dto.email.toLowerCase().trim();
-    await this.verifyRegistrationCode(email, dto.verificationCode);
+    const [userCount, verificationRequired] = await Promise.all([
+      this.prisma.user.count(),
+      this.registrationVerificationRequired(),
+    ]);
+    const bootstrapWithoutVerification =
+      userCount === 0 && !verificationRequired;
+    if (!bootstrapWithoutVerification) {
+      if (!dto.verificationCode) {
+        throw new BadRequestException('Verification code is required');
+      }
+      await this.verifyRegistrationCode(email, dto.verificationCode);
+    }
     const passwordHash = await bcrypt.hash(dto.password, 12);
     const defaultQuotaBytes = await this.getDefaultQuotaBytes();
 
@@ -131,6 +146,11 @@ export class AuthService {
             }
 
             const userCount = await tx.user.count();
+            if (bootstrapWithoutVerification && userCount !== 0) {
+              throw new BadRequestException(
+                'Email verification is required after the first account',
+              );
+            }
             return tx.user.create({
               data: {
                 email,
