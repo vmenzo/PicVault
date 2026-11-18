@@ -8,6 +8,7 @@ import {
 import { ApiKeysService } from '../api-keys/api-keys.service';
 import { SettingsService } from '../settings/settings.service';
 import { SessionService } from '../auth/session.service';
+import { formatUserPublicId } from '../../common/public-id';
 
 @Injectable()
 export class UploadAuthGuard implements CanActivate {
@@ -34,7 +35,7 @@ export class UploadAuthGuard implements CanActivate {
 
       request.user = {
         id: user.id,
-        publicId: user.publicId,
+        publicId: formatUserPublicId(user.publicId),
         email: user.email,
         role: user.role,
         authType: 'api-key',
@@ -54,7 +55,7 @@ export class UploadAuthGuard implements CanActivate {
 
     request.user = {
       id: user.id,
-      publicId: user.publicId,
+      publicId: formatUserPublicId(user.publicId),
       email: user.email,
       role: user.role,
       authType: 'session',

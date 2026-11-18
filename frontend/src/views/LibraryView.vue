@@ -18,11 +18,13 @@ import { ElMessage } from 'element-plus/es/components/message/index';
 import { ElMessageBox } from 'element-plus/es/components/message-box/index';
 import { useRoute, useRouter } from 'vue-router';
 import { listAlbumsApi } from '@/api/albums';
+import PanelCard from '@/components/PanelCard.vue';
 import ProtectedImage from '@/components/ProtectedImage.vue';
 import {
   bulkImagesApi,
   deleteImageApi,
   exportImagesApi,
+  getImageApi,
   listImagesApi,
   listTagsApi,
   permanentDeleteImageApi,
@@ -39,6 +41,7 @@ import {
   visibilityLabel,
 } from '@/utils/format';
 import { toAbsoluteUrl } from '@/utils/url';
+import { apiUrl, siteUrl } from '@/utils/api-url';
 
 const router = useRouter();
 const route = useRoute();
@@ -151,6 +154,11 @@ function resetFilters() {
   query.sortBy = 'createdAt';
   query.sortOrder = 'desc';
   query.page = 1;
+  // Drop deep-link/filter params from the URL so a later route watch
+  // does not re-apply the filters that were just cleared.
+  if (Object.keys(route.query).length) {
+    void router.replace({ path: '/library', query: {} });
+  }
   load();
 }
 
@@ -243,6 +251,21 @@ function formatImageLink(
 
 function isShareable(image: ImageItem) {
   return image.status === 'READY' && image.visibility !== 'PRIVATE';
+}
+
+/**
+ * Why an image cannot be shared, shown instead of a blank link area.
+ * The share URL format itself is unchanged; private/processing images
+ * simply have no public link yet.
+ */
+function shareBlockedReason(image: ImageItem) {
+  if (image.status === 'DELETED') return '图片已移入回收站，无法分享';
+  if (image.status === 'FAILED') return '图片处理失败，无法分享；可尝试重新处理';
+  if (image.status === 'PROCESSING' || image.status === 'PENDING')
+    return '图片仍在处理中，处理完成后才能分享';
+  if (image.visibility === 'PRIVATE')
+    return '私有图片无法分享，改为公开或隐藏链接后可分享';
+  return '';
 }
 
 function isRestorable(image: ImageItem) {
@@ -450,49 +473,112 @@ async function reprocess(row: ImageItem) {
 }
 
 function shareUrl(image: ImageItem) {
-  return isShareable(image) ? `${window.location.origin}/s/${image.id}` : '';
+  return isShareable(image) ? siteUrl(`/s/${image.id}`) : '';
 }
 
 function downloadUrl(image: ImageItem) {
   return isShareable(image)
-    ? `${window.location.origin}/api/public/images/${image.id}/download`
+    ? apiUrl(`/public/images/${image.id}/download`)
     : '';
 }
 
-onMounted(async () => {
-  if (typeof route.query.q === 'string') {
+const validRouteStatuses: ImageStatus[] = [
+  'PENDING',
+  'READY',
+  'PROCESSING',
+  'FAILED',
+  'DELETED',
+];
+/** Last ?image= id already opened, so closing the drawer does not reopen it. */
+const lastOpenedImageId = ref('');
+
+/**
+ * Initialise the list filters from the route query (?q, ?status, ?albumId,
+ * ?favorite) so dashboard links such as /library?status=READY and
+ * /library?albumId=<id> actually filter. Returns true when a filter changed.
+ */
+function applyRouteQuery() {
+  let changed = false;
+  if (typeof route.query.q === 'string' && route.query.q !== query.q) {
     query.q = route.query.q;
+    changed = true;
   }
+  if (
+    typeof route.query.status === 'string' &&
+    (validRouteStatuses as string[]).includes(route.query.status) &&
+    route.query.status !== query.status
+  ) {
+    query.status = route.query.status as ImageStatus;
+    changed = true;
+  }
+  if (
+    typeof route.query.albumId === 'string' &&
+    route.query.albumId !== query.albumId
+  ) {
+    query.albumId = route.query.albumId;
+    changed = true;
+  }
+  if (route.query.favorite !== undefined) {
+    const favorite =
+      route.query.favorite === 'true' || route.query.favorite === '1';
+    if (favorite !== query.favorite) {
+      query.favorite = favorite;
+      changed = true;
+    }
+  }
+  if (changed) query.page = 1;
+  return changed;
+}
+
+/** Open the detail drawer for ?image=<id>, fetching it when it is not on the current page. */
+async function openImageFromRoute() {
+  const imageId =
+    typeof route.query.image === 'string' ? route.query.image : '';
+  if (!imageId || imageId === lastOpenedImageId.value) return;
+  const inPage = images.value.find((image) => image.id === imageId);
+  if (inPage) {
+    lastOpenedImageId.value = imageId;
+    openDetail(inPage);
+    return;
+  }
+  try {
+    const image = await getImageApi(imageId);
+    lastOpenedImageId.value = imageId;
+    openDetail(image);
+  } catch {
+    ElMessage.warning('链接中的图片不存在或无权访问');
+  }
+}
+
+onMounted(async () => {
+  applyRouteQuery();
   const [albumData, tagData] = await Promise.all([
     listAlbumsApi(),
     listTagsApi(),
   ]);
   albums.value = albumData;
   tags.value = tagData;
-  load();
+  await load();
+  await openImageFromRoute();
 });
 
 watch(
-  () => route.query.q,
-  (value) => {
-    const nextQuery = typeof value === 'string' ? value : '';
-    if (nextQuery === query.q) return;
-
-    query.q = nextQuery;
-    query.page = 1;
-    load();
+  () => route.query,
+  async () => {
+    const changed = applyRouteQuery();
+    if (changed) await load();
+    await openImageFromRoute();
   },
 );
 </script>
 
 <template>
   <div class="page-stack">
-    <el-card shadow="never" class="panel-card">
-      <div class="library-toolbar-head">
-        <div>
-          <strong>整理与查找</strong>
-          <span>按相册、状态或标签快速缩小范围</span>
-        </div>
+    <PanelCard
+      title="整理与查找"
+      subtitle="按相册、状态或标签快速缩小范围"
+    >
+      <template #action>
         <el-button
           type="primary"
           :icon="UploadFilled"
@@ -500,7 +586,7 @@ watch(
         >
           上传图片
         </el-button>
-      </div>
+      </template>
       <div class="toolbar library-toolbar">
         <el-input
           v-model="query.q"
@@ -600,7 +686,7 @@ watch(
         <el-button :icon="Refresh" @click="load">刷新</el-button>
         <el-button @click="resetFilters">重置</el-button>
       </div>
-    </el-card>
+    </PanelCard>
 
     <el-card shadow="never" class="panel-card" v-if="selectedIds.length">
       <div class="bulk-bar">
@@ -783,12 +869,14 @@ watch(
             :icon="Link"
             @click="copyText(toAbsoluteUrl(image.publicUrl), '外链')"
             :disabled="!isShareable(image)"
+            :title="isShareable(image) ? '' : shareBlockedReason(image)"
           >
             外链
           </el-button>
           <el-button
             size="small"
             :disabled="!isShareable(image)"
+            :title="isShareable(image) ? '' : shareBlockedReason(image)"
             @click="copyText(shareUrl(image), '分享页')"
             >分享</el-button
           >
@@ -1049,6 +1137,13 @@ watch(
         </div>
 
         <div class="copy-list">
+          <el-alert
+            v-if="selectedImage && !linkFormats(selectedImage).length"
+            :title="shareBlockedReason(selectedImage)"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
           <div v-for="item in linkFormats(selectedImage)" :key="item.label">
             <span>{{ item.label }}</span>
             <el-input :model-value="item.value" readonly>

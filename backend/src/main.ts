@@ -2,6 +2,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { ApiErrorFilter } from './common/api-error.filter';
 import { RateLimitGuard } from './common/rate-limit.guard';
 import { AppModule } from './app.module';
 import { normalizeOrigin } from './common/request-meta';
@@ -9,10 +10,31 @@ import { normalizeOrigin } from './common/request-meta';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const config = app.get(ConfigService);
-  const allowedOrigins = (config.get<string>('CORS_ORIGIN') ?? '')
+  // CORS is fail-closed: an empty CORS_ORIGIN means only APP_PUBLIC_URL is
+  // allowed. It never means "allow any origin" — with credentials:true that
+  // would let any site make authenticated cross-origin requests. In
+  // production, having neither configured is a startup error.
+  const configuredOrigins = (config.get<string>('CORS_ORIGIN') ?? '')
     .split(',')
     .map(normalizeOrigin)
     .filter(Boolean);
+  const appPublicUrl = normalizeOrigin(
+    config.get<string>('APP_PUBLIC_URL') ?? '',
+  );
+  const allowedOrigins =
+    configuredOrigins.length > 0
+      ? configuredOrigins
+      : appPublicUrl
+        ? [appPublicUrl]
+        : [];
+  if (
+    config.get<string>('NODE_ENV') === 'production' &&
+    allowedOrigins.length === 0
+  ) {
+    throw new Error(
+      'CORS is not configured: set CORS_ORIGIN or APP_PUBLIC_URL before starting in production',
+    );
+  }
   const frameAncestors =
     config.get<string>('FRAME_ANCESTORS') === 'self'
       ? "'self'"
@@ -52,11 +74,10 @@ async function bootstrap() {
   app.enableCors({
     origin(origin, callback) {
       const normalized = normalizeOrigin(origin);
-      if (
-        !origin ||
-        allowedOrigins.length === 0 ||
-        allowedOrigins.includes(normalized)
-      ) {
+      // No Origin header (same-origin / non-browser request) is fine.
+      // Any other origin must be on the allowlist; an empty allowlist
+      // allows nothing cross-origin.
+      if (!origin || allowedOrigins.includes(normalized)) {
         callback(null, true);
         return;
       }
@@ -65,6 +86,7 @@ async function bootstrap() {
     },
     credentials: true,
   });
+  app.useGlobalFilters(new ApiErrorFilter());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

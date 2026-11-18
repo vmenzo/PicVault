@@ -71,6 +71,26 @@ type TelegramPreview = {
   returnAction?: 'library' | 'trash';
 };
 
+// An image reference the Telegram link/preview helpers can work with:
+// either a raw DB row (storageKey / thumbKey) or a SerializedImage
+// (publicUrl / thumbUrl — serializeImage() deliberately strips the storage
+// keys). At least one way of locating the file must be present. Helpers
+// that need the raw bytes (previewForImage) return null when only a
+// publicUrl is available.
+type TelegramImageRef = {
+  id?: string;
+  title?: string;
+  originalName?: string;
+  mimeType?: string;
+  storageKey?: string;
+  publicUrl?: string;
+  storageProvider: StorageProvider;
+  thumbKey?: string | null;
+  thumbUrl?: string | null;
+  visibility: Visibility;
+  status: ImageStatus;
+};
+
 type TelegramUrlSetting = {
   publicBaseUrl?: string | null;
   appPublicUrl?: string | null;
@@ -226,6 +246,16 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    // Fail closed: an empty allowlist disables the bot. It must never mean
+    // "allow everyone" — without at least one configured Chat ID no update
+    // is fetched or handled for this account.
+    if (setting.telegramAllowedChatIds.length === 0) {
+      this.logger.warn(
+        `Telegram bot for owner ${ownerId} is enabled but has no allowed Chat IDs; polling disabled until an allowlist is configured`,
+      );
+      return;
+    }
+
     const updates = await this.telegram<TelegramUpdate[]>(token, 'getUpdates', {
       timeout: 10,
       limit: 50,
@@ -261,9 +291,10 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   ) {
     if (update.callback_query) {
       const callbackChatId = update.callback_query.message?.chat.id;
+      // Defense in depth (pollAccount already refuses empty allowlists):
+      // an empty allowlist rejects every chat.
       if (
         callbackChatId !== undefined &&
-        setting.telegramAllowedChatIds.length &&
         !setting.telegramAllowedChatIds.includes(String(callbackChatId))
       ) {
         await this.answerCallback(
@@ -285,10 +316,8 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
     }
 
     const chatId = String(message.chat.id);
-    if (
-      setting.telegramAllowedChatIds.length &&
-      !setting.telegramAllowedChatIds.includes(chatId)
-    ) {
+    // Defense in depth: an empty allowlist rejects every chat.
+    if (!setting.telegramAllowedChatIds.includes(chatId)) {
       await this.sendMessage(token, chatId, '这个 Chat ID 未被允许上传。');
       return;
     }
@@ -1275,7 +1304,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
         `Chat 白名单：${
           setting.telegramAllowedChatIds.length
             ? setting.telegramAllowedChatIds.join(', ')
-            : '未限制'
+            : '未配置（Bot 已停用）'
         }`,
         `API 上传：${setting.apiUpload ? '开启' : '关闭'} · API 密钥 ${keys} 个`,
         `存储：${setting.storageProvider}`,
@@ -2017,13 +2046,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   private publicLinkLine(
-    image: {
-      id?: string;
-      storageKey: string;
-      storageProvider: StorageProvider;
-      visibility: Visibility;
-      status: ImageStatus;
-    },
+    image: TelegramImageRef,
     setting?: Awaited<ReturnType<SettingsService['getRuntime']>>,
   ) {
     if (this.isPublicReadyImage(image)) {
@@ -2041,13 +2064,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   private publicLinkCopyLine(
-    image: {
-      id?: string;
-      storageKey: string;
-      storageProvider: StorageProvider;
-      visibility: Visibility;
-      status: ImageStatus;
-    },
+    image: TelegramImageRef,
     setting?: Awaited<ReturnType<SettingsService['getRuntime']>>,
   ) {
     if (this.isPublicReadyImage(image)) {
@@ -2081,13 +2098,7 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   private publicLinksForImage(
-    image: {
-      id?: string;
-      storageKey: string;
-      storageProvider: StorageProvider;
-      visibility: Visibility;
-      status: ImageStatus;
-    },
+    image: TelegramImageRef,
     setting?: Awaited<ReturnType<SettingsService['getRuntime']>>,
   ) {
     if (!this.isPublicReadyImage(image)) {
@@ -2117,20 +2128,19 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
 
   private previewForImage(
     ownerId: string,
-    image: {
-      id?: string;
+    image: TelegramImageRef & {
       title: string;
       originalName: string;
       mimeType: string;
-      storageKey: string;
-      storageProvider: StorageProvider;
-      thumbKey?: string | null;
-      visibility: Visibility;
-      status: ImageStatus;
     },
     setting?: TelegramRuntimeSetting,
   ): TelegramPreview | null {
     const key = image.thumbKey || image.storageKey;
+    // A serialized image has no storage key, so its bytes cannot be
+    // fetched for a Telegram preview; callers already filter out null.
+    if (!key) {
+      return null;
+    }
     const contentType = image.thumbKey ? 'image/webp' : image.mimeType;
     const links = this.publicLinksForImage(image, setting);
 
@@ -2200,9 +2210,22 @@ export class TelegramService implements OnModuleInit, OnModuleDestroy {
   }
 
   private imagePublicUrl(
-    image: { storageKey: string; storageProvider: StorageProvider },
+    image: {
+      storageKey?: string;
+      publicUrl?: string;
+      storageProvider: StorageProvider;
+    },
     setting?: TelegramUrlSetting,
   ) {
+    // A serialized image carries a precomputed publicUrl (a relative path
+    // for LOCAL, an absolute URL for S3); make it absolute against the
+    // app URL. new URL(absolute, base) returns the absolute URL as-is.
+    if (image.publicUrl) {
+      return new URL(image.publicUrl, this.publicAppUrl(setting)).toString();
+    }
+    if (!image.storageKey) {
+      throw new Error('图片缺少存储标识，无法生成公开链接');
+    }
     if (image.storageProvider === StorageProvider.LOCAL) {
       return new URL(
         this.storage.getObjectUrlPath(image.storageKey),

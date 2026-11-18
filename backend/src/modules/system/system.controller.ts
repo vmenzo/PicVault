@@ -18,6 +18,17 @@ export class SystemController {
     return this.system.ping();
   }
 
+  /**
+   * Unauthenticated readiness probe (DB + Redis). Intentionally separate
+   * from the admin-only /health endpoint, which exposes counts and
+   * storage details. Used by the frontend /healthz and /readyz handlers
+   * and by docker-compose healthchecks.
+   */
+  @Get('ready')
+  readiness() {
+    return this.system.readiness();
+  }
+
   @Get('health')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, AdminGuard)

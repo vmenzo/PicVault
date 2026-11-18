@@ -1,0 +1,347 @@
+/**
+ * PicVault design tokens — single source of truth for colour, spacing,
+ * type, radii and shadows. Imported FIRST in main.ts, before main.css.
+ *
+ * Direction: quiet, dense, photo-first admin dashboard (Linear /
+ * Cloudflare Dashboard style). Light-grey canvas, white panels, one blue,
+ * one coral red. 4pt spacing grid. Dark mode is token-driven: flipping
+ * `data-theme="dark"` on <html> re-maps the variables below; rules that
+ * still use hard-coded hex in main.css are out of scope for this pass
+ * (see the note at the bottom of this file).
+ */
+
+:root {
+  /* ---- Brand: exactly one blue, one coral red ---- */
+  --pv-blue: #2257d7;
+  --pv-blue-strong: #1a46b4;
+  --pv-blue-soft: #eaf0ff;
+  --pv-blue-softer: #f4f7ff;
+  --pv-coral: #e95445;
+  --pv-coral-strong: #c93f31;
+  --pv-coral-soft: #fdecea;
+
+  /* ---- Semantic colours ---- */
+  --pv-success: #2f9e68;
+  --pv-success-soft: #e7f5ec;
+  --pv-warning: #e6a23c;
+  --pv-warning-soft: #fdf3e0;
+  --pv-danger: #e95445;
+  --pv-danger-soft: #fdecea;
+  --pv-info: #2257d7;
+  --pv-info-soft: #eaf0ff;
+
+  /* ---- Neutrals ---- */
+  --pv-ink: #171b1f;
+  --pv-ink-soft: #3c454e;
+  --pv-muted: #66707a;
+  --pv-faint: #8a939c;
+  --pv-line: #dfe4e8;
+  --pv-line-soft: #edf0ee;
+  --pv-canvas: #f4f6f7;
+  --pv-surface: #ffffff;
+  --pv-surface-raised: #fbfcfc;
+
+  /* Backwards-compatible alias: --muted was referenced but never defined. */
+  --muted: var(--pv-muted);
+
+  /* ---- Spacing (4pt grid) ---- */
+  --pv-space-1: 4px;
+  --pv-space-2: 8px;
+  --pv-space-3: 12px;
+  --pv-space-4: 16px;
+  --pv-space-5: 20px;
+  --pv-space-6: 24px;
+  --pv-space-8: 32px;
+  --pv-space-12: 48px;
+
+  /* ---- Type scale ---- */
+  --pv-text-xs: 12px;
+  --pv-text-sm: 13px;
+  --pv-text-base: 14px;
+  --pv-text-md: 15px;
+  --pv-text-lg: 18px;
+  --pv-text-xl: 22px;
+  --pv-text-2xl: 28px;
+
+  /* ---- Radii ---- */
+  --pv-radius-sm: 6px;
+  --pv-radius-md: 8px;
+  --pv-radius-lg: 12px;
+  --pv-radius-full: 999px;
+
+  /* ---- Shadows ---- */
+  --pv-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --pv-shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --pv-shadow-lg: 0 14px 40px rgba(15, 23, 42, 0.12);
+
+  /* ---- Type ---- */
+  --pv-font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', sans-serif;
+  --pv-font-mono:
+    ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ---- Shell dimensions (unified) ---- */
+  --pv-sidebar-width: 240px;
+  --pv-header-height: 64px;
+  --pv-content-max-width: 1280px;
+  --pv-side-column-width: 320px;
+
+  /* ---- Element Plus mapping ---- */
+  --el-color-primary: var(--pv-blue);
+  --el-color-primary-light-3: #6b8ce4;
+  --el-color-primary-light-5: #93a9ec;
+  --el-color-primary-light-7: #bccbf5;
+  --el-color-primary-light-8: #d3ddfa;
+  --el-color-primary-light-9: var(--pv-blue-soft);
+  --el-color-primary-dark-2: var(--pv-blue-strong);
+  --el-color-success: var(--pv-success);
+  --el-color-success-light-9: var(--pv-success-soft);
+  --el-color-warning: var(--pv-warning);
+  --el-color-warning-light-9: var(--pv-warning-soft);
+  --el-color-danger: var(--pv-danger);
+  --el-color-danger-light-9: var(--pv-danger-soft);
+  --el-color-info: var(--pv-info);
+  --el-color-info-light-9: var(--pv-info-soft);
+  --el-color-error: var(--pv-danger);
+  --el-border-color: var(--pv-line);
+  --el-border-color-light: var(--pv-line-soft);
+  --el-border-radius-base: var(--pv-radius-md);
+  --el-border-radius-small: var(--pv-radius-sm);
+  --el-text-color-primary: var(--pv-ink);
+  --el-text-color-regular: var(--pv-ink-soft);
+  --el-text-color-secondary: var(--pv-muted);
+  --el-bg-color: var(--pv-surface);
+  --el-bg-color-page: var(--pv-canvas);
+  --el-fill-color-light: var(--pv-blue-softer);
+
+  color: var(--pv-ink);
+  background: var(--pv-canvas);
+}
+
+/* ------------------------------------------------------------------ */
+/* Dark mode: token re-map + key surfaces only.                       */
+/* Element Plus internals and the many hard-coded hex rules in        */
+/* main.css do NOT flip yet — a full dark pass is follow-up work.     */
+/* ------------------------------------------------------------------ */
+[data-theme='dark'] {
+  --pv-ink: #e8eaed;
+  --pv-ink-soft: #c3c9cf;
+  --pv-muted: #9aa3ab;
+  --pv-faint: #7b848d;
+  --pv-line: #2c343b;
+  --pv-line-soft: #232a30;
+  --pv-canvas: #12161a;
+  --pv-surface: #1a2026;
+  --pv-surface-raised: #20272e;
+  --pv-blue-soft: #22345e;
+  --pv-blue-softer: #1b2947;
+  --pv-coral-soft: #3d2320;
+  --pv-success-soft: #1d3327;
+  --pv-warning-soft: #3a2f1a;
+  --pv-danger-soft: #3d2320;
+  --pv-info-soft: #22345e;
+  --pv-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --pv-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --pv-shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.5);
+  --el-color-primary-light-9: var(--pv-blue-soft);
+  --el-border-color: var(--pv-line);
+  --el-border-color-light: var(--pv-line-soft);
+  --el-text-color-primary: var(--pv-ink);
+  --el-text-color-regular: var(--pv-ink-soft);
+  --el-text-color-secondary: var(--pv-muted);
+  --el-bg-color: var(--pv-surface);
+  --el-bg-color-page: var(--pv-canvas);
+  color: var(--pv-ink);
+  background: var(--pv-canvas);
+  color-scheme: dark;
+}
+
+/* Higher-specificity surface overrides so dark tokens win over the
+   hard-coded light rules in main.css (which loads after this file). */
+html[data-theme='dark'] body,
+html[data-theme='dark'] .app-shell {
+  background: var(--pv-canvas);
+}
+
+html[data-theme='dark'] .app-sidebar {
+  background: var(--pv-surface-raised);
+  border-color: var(--pv-line);
+}
+
+html[data-theme='dark'] .app-header {
+  border-color: var(--pv-line);
+  background: rgba(26, 32, 38, 0.94);
+}
+
+html[data-theme='dark'] .app-header h1,
+html[data-theme='dark'] .panel-head strong,
+html[data-theme='dark'] .pv-page-header h1 {
+  color: var(--pv-ink);
+}
+
+html[data-theme='dark'] .app-header p,
+html[data-theme='dark'] .pv-page-header p {
+  color: var(--pv-muted);
+}
+
+html[data-theme='dark'] .panel-card,
+html[data-theme='dark'] .dashboard-status,
+html[data-theme='dark'] .storage-strip,
+html[data-theme='dark'] .dashboard-metrics,
+html[data-theme='dark'] .dashboard-metrics button {
+  border-color: var(--pv-line);
+  background: var(--pv-surface);
+  color: var(--pv-ink);
+}
+
+html[data-theme='dark'] .dashboard-metrics button:hover {
+  background: var(--pv-surface-raised);
+}
+
+/* ------------------------------------------------------------------ */
+/* Shared component styles (PageHeader / MetricCard / PanelCard)      */
+/* ------------------------------------------------------------------ */
+.pv-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--pv-space-4);
+  flex-wrap: wrap;
+}
+
+.pv-page-header-eyebrow {
+  display: block;
+  margin-bottom: var(--pv-space-1);
+  color: var(--pv-blue);
+  font-size: var(--pv-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pv-page-header h1 {
+  margin: 0;
+  font-size: var(--pv-text-xl);
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.pv-page-header p {
+  margin: var(--pv-space-1) 0 0;
+  color: var(--pv-muted);
+  font-size: var(--pv-text-sm);
+  line-height: 1.5;
+}
+
+.pv-page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--pv-space-2);
+  flex-wrap: wrap;
+}
+
+/* PanelCard header: title over muted subtitle. */
+.panel-head > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.panel-head > div > span {
+  color: var(--pv-muted);
+  font-size: var(--pv-text-xs);
+  line-height: 1.5;
+}
+
+.metric-card {
+  min-width: 0;
+  padding: var(--pv-space-5) var(--pv-space-6);
+  border: 0;
+  border-right: 1px solid var(--pv-line);
+  color: var(--pv-ink);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background 180ms ease-out;
+}
+
+.metric-card:last-child {
+  border-right: 0;
+}
+
+.metric-card:hover {
+  background: var(--pv-surface-raised);
+}
+
+.metric-card:disabled {
+  cursor: default;
+}
+
+.metric-card span,
+.metric-card strong,
+.metric-card small {
+  display: block;
+}
+
+.metric-card span {
+  color: var(--pv-muted);
+  font-size: var(--pv-text-sm);
+}
+
+.metric-card strong {
+  margin: var(--pv-space-2) 0 9px;
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.metric-card small {
+  min-height: 18px;
+  color: var(--pv-faint);
+  font-size: var(--pv-text-xs);
+}
+
+/* Visually-hidden but screen-reader-accessible (donut data table). */
+.pv-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Inline SVG donut (replaces the conic-gradient div). */
+.asset-donut-svg {
+  display: block;
+  width: min(270px, 100%);
+  height: auto;
+  margin: 0 auto;
+}
+
+.asset-donut-svg circle {
+  fill: none;
+}
+
+.asset-donut-svg .donut-track {
+  stroke: var(--pv-line-soft);
+}
+
+.asset-donut-svg .donut-segment {
+  transition: opacity 180ms ease-out;
+}
+
+.asset-donut-svg text {
+  fill: var(--pv-ink);
+  font-family: var(--pv-font-sans);
+}
+
+.asset-donut-svg .donut-label {
+  fill: var(--pv-muted);
+  font-size: 12px;
+}

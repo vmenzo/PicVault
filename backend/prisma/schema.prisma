@@ -152,6 +152,10 @@ model AppSetting {
   trashRetentionDays     Int             @default(30)
   telegramBotEnabled     Boolean         @default(false)
   telegramBotToken       String?
+  // Fail-closed: an empty allowlist disables the bot. It NEVER means
+  // "allow everyone" — SettingsService rejects enabling the bot without at
+  // least one Chat ID, and TelegramService refuses to poll/handle updates
+  // while the list is empty.
   telegramAllowedChatIds String[]        @default([])
   telegramAlbumId        String?
   telegramLastUpdateId   Int?

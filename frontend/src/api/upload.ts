@@ -1,5 +1,10 @@
 import axios from 'axios';
-import { http } from './http';
+import {
+  http,
+  isBackendUrl,
+  normalizeApiError,
+  readErrorMessage,
+} from './http';
 import { useAuthStore } from '@/stores/auth';
 import type { ImageItem, StorageProvider, Visibility } from './types';
 
@@ -10,6 +15,8 @@ export type SignUploadResponse = {
   method: 'PUT';
   headers: Record<string, string>;
   publicUrl: string;
+  // Advisory only: the backend PUT URL carries no expiry and the value
+  // is not enforced server-side (see UploadService.create).
   expiresIn: number;
 };
 
@@ -45,11 +52,17 @@ export function putObject(
   onUploadProgress?: (percent: number) => void,
 ) {
   const auth = useAuthStore();
+  // The backend always returns its own PUT endpoint (/api/upload/<key>/
+  // object) for LOCAL and S3 alike, so uploads never go direct to S3
+  // and no S3 CORS setup is involved. The session token is attached
+  // only for backend URLs (see isBackendUrl in http.ts). A raw axios
+  // instance is used instead of `http` because the returned URL already
+  // contains the '/api' prefix, which http's baseURL would duplicate.
   return axios
     .put(url, file, {
       headers: {
         ...headers,
-        ...(url.startsWith('/api/') && auth.token
+        ...(isBackendUrl(url) && auth.token
           ? { Authorization: `Bearer ${auth.token}` }
           : {}),
       },
@@ -59,30 +72,12 @@ export function putObject(
       },
     })
     .then((response) => response.data as ImageItem | { ok: boolean })
-    .catch((error) => {
-      const rawMessage =
-        error.response?.data?.message ?? error.message ?? '上传失败';
-      const message = Array.isArray(rawMessage) ? rawMessage[0] : rawMessage;
-
-      if (url.startsWith('/api/')) {
-        throw new Error(message);
+    .catch(async (error) => {
+      // Same handling as the http interceptor: 401 logs out, and the
+      // message goes through normalizeApiError (including blob bodies).
+      if (error.response?.status === 401 && auth.token) {
+        auth.logout();
       }
-
-      if (!url.startsWith('/api/') && !error.response) {
-        throw new Error(
-          '第三方对象存储上传失败，请检查 Bucket CORS 是否允许当前域名 PUT 上传',
-        );
-      }
-
-      if (
-        !url.startsWith('/api/') &&
-        [403, 404].includes(error.response?.status)
-      ) {
-        throw new Error(
-          '第三方对象存储拒绝上传，请检查 Endpoint、Bucket、权限和签名配置',
-        );
-      }
-
-      throw error;
+      throw new Error(normalizeApiError(await readErrorMessage(error)));
     });
 }

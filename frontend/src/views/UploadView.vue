@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import type { UploadRawFile, UploadRequestOptions } from 'element-plus';
 import { ElMessage } from 'element-plus/es/components/message/index';
 import {
@@ -12,6 +13,7 @@ import {
   UploadFilled,
 } from '@element-plus/icons-vue';
 import { listAlbumsApi } from '@/api/albums';
+import { getImageApi, reprocessImageApi } from '@/api/images';
 import { getUploadPolicyApi } from '@/api/settings';
 import {
   completeUploadApi,
@@ -47,6 +49,10 @@ type QueueItem = {
   error?: string;
   file?: File;
   remoteUrl?: string;
+  /** Backend image id, set once the server has accepted the upload. */
+  imageId?: string;
+  /** Where the failure happened, so retry can reprocess instead of re-uploading. */
+  failedStage?: 'upload' | 'processing';
   storageProvider: StorageProvider;
   visibility: Visibility;
 };
@@ -54,7 +60,11 @@ type UploadResult = {
   id: string;
   name: string;
   url: string;
+  visibility: Visibility;
+  imageId?: string;
 };
+
+const router = useRouter();
 
 const albums = ref<Album[]>([]);
 const queue = ref<QueueItem[]>([]);
@@ -81,6 +91,11 @@ const activeCount = computed(
     ).length,
 );
 const successItems = computed(() => uploadResults.value);
+const privateSuccessCount = computed(
+  () =>
+    uploadResults.value.filter((item) => item.visibility === 'PRIVATE')
+      .length,
+);
 const failedItems = computed(() =>
   queue.value.filter((item) => item.status === 'failed'),
 );
@@ -91,6 +106,7 @@ const totalBytes = computed(() =>
 const outputText = computed(() =>
   successItems.value
     .map((item) => formatResult(item, outputFormat.value))
+    .filter(Boolean)
     .join('\n'),
 );
 const storageTargetOptions = [
@@ -100,10 +116,11 @@ const storageTargetOptions = [
 const storageTargetLabel = computed(() =>
   form.storageProvider === 'LOCAL' ? '本机存储' : '第三方对象存储',
 );
-const autoRemoveTimers = new Map<string, number>();
-const progressTimers = new Map<string, number>();
-const processingTimers = new Map<string, number>();
+/** Polling timers for images awaiting a terminal READY/FAILED status. */
+const pollTimers = new Map<string, number>();
 const maxConcurrentUploads = 3;
+const pollIntervalMs = 1500;
+const maxPollAttempts = 120; // ~3 minutes, then give up and keep the row visible.
 
 function makeId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -113,7 +130,10 @@ function formatResult(
   item: { name: string; url?: string },
   format: 'url' | 'markdown' | 'html' | 'bbcode',
 ) {
+  // Private images have no public URL: return '' so the caller can skip
+  // them instead of emitting a blank link line.
   const url = toAbsoluteUrl(item.url);
+  if (!url) return '';
   if (format === 'markdown') return `![${item.name}](${url})`;
   if (format === 'html') return `<img src="${url}" alt="${item.name}">`;
   if (format === 'bbcode') return `[img]${url}[/img]`;
@@ -143,46 +163,90 @@ function validateFile(file: File) {
   return true;
 }
 
-function setProgress(item: QueueItem, progress: number) {
-  item.progress = Math.max(item.progress, Math.min(Math.round(progress), 99));
-}
-
-function stopProgress(id: string) {
-  const timer = progressTimers.get(id);
+function stopPolling(id: string) {
+  const timer = pollTimers.get(id);
   if (!timer) return;
   window.clearInterval(timer);
-  progressTimers.delete(id);
+  pollTimers.delete(id);
 }
 
-function stopProcessingDelay(id: string) {
-  const timer = processingTimers.get(id);
-  if (!timer) return;
-  window.clearTimeout(timer);
-  processingTimers.delete(id);
+/**
+ * Poll GET /images/:id until the image reaches a terminal status.
+ * READY -> success (with a public URL when the image is not private);
+ * FAILED -> failed, kept in the queue until the user clears it (the
+ * backend stores no failure reason, so a generic message is shown and
+ * retry reprocesses via POST /images/:id/reprocess).
+ * Rows are never auto-removed: success rows stay so the user can copy
+ * links or open the image in the library, failed rows stay so the error
+ * and retry affordance remain visible.
+ */
+async function pollImageStatus(item: QueueItem, imageId: string) {
+  stopPolling(item.id);
+  let attempts = 0;
+  const timer = window.setInterval(async () => {
+    attempts += 1;
+    if (!queue.value.some((current) => current.id === item.id)) {
+      stopPolling(item.id);
+      return;
+    }
+    if (item.status !== 'processing') {
+      stopPolling(item.id);
+      return;
+    }
+    if (attempts > maxPollAttempts) {
+      stopPolling(item.id);
+      item.status = 'failed';
+      item.failedStage = 'processing';
+      item.error = '处理超时：服务器仍未返回处理结果，请稍后重试或在图片库查看状态';
+      return;
+    }
+    let image;
+    try {
+      image = await getImageApi(imageId);
+    } catch {
+      // Transient poll failure: keep waiting; a later attempt may succeed.
+      return;
+    }
+    if (image.status === 'READY') {
+      stopPolling(item.id);
+      finishAsReady(item, image);
+    } else if (image.status === 'FAILED') {
+      stopPolling(item.id);
+      item.status = 'failed';
+      item.failedStage = 'processing';
+      item.error = '图片处理失败，可点击“重试”重新处理';
+    } else if (image.status === 'DELETED') {
+      stopPolling(item.id);
+      item.status = 'failed';
+      item.failedStage = 'processing';
+      item.error = '图片已被删除';
+    }
+    // PENDING / PROCESSING: keep polling.
+  }, pollIntervalMs);
+  pollTimers.set(item.id, timer);
 }
 
-function startProgress(item: QueueItem, target: number, intervalMs = 500) {
-  stopProgress(item.id);
-  const timer = window.setInterval(() => {
-    if (['success', 'failed'].includes(item.status)) {
-      stopProgress(item.id);
-      return;
-    }
-
-    if (item.progress >= target) {
-      stopProgress(item.id);
-      return;
-    }
-
-    const gap = target - item.progress;
-    setProgress(item, item.progress + Math.max(1, Math.ceil(gap * 0.16)));
-  }, intervalMs);
-  progressTimers.set(item.id, timer);
+function finishAsReady(
+  item: QueueItem,
+  image: { publicUrl?: string; status: string; visibility?: string },
+) {
+  item.status = 'success';
+  item.progress = 100;
+  item.url =
+    item.visibility !== 'PRIVATE'
+      ? toAbsoluteUrl(image.publicUrl)
+      : '';
+  rememberResult(item);
 }
 
 function rememberResult(item: QueueItem) {
-  if (!item.url) return;
-  const result = { id: item.id, name: item.name, url: item.url };
+  const result: UploadResult = {
+    id: item.id,
+    name: item.name,
+    url: item.url ?? '',
+    visibility: item.visibility,
+    imageId: item.imageId,
+  };
   const index = uploadResults.value.findIndex((entry) => entry.id === item.id);
   if (index >= 0) {
     uploadResults.value.splice(index, 1, result);
@@ -191,16 +255,9 @@ function rememberResult(item: QueueItem) {
   }
 }
 
-function scheduleAutoRemove(item: QueueItem) {
-  const existing = autoRemoveTimers.get(item.id);
-  if (existing) {
-    window.clearTimeout(existing);
-  }
-
-  const timer = window.setTimeout(() => {
-    removeItem(item.id);
-  }, 3500);
-  autoRemoveTimers.set(item.id, timer);
+function openInLibrary(item: QueueItem) {
+  if (!item.imageId) return;
+  router.push({ path: '/library', query: { image: item.imageId } });
 }
 
 async function runQueueItems(items: QueueItem[]) {
@@ -221,8 +278,7 @@ async function runQueueItems(items: QueueItem[]) {
 async function runLocalUpload(item: QueueItem) {
   if (!item.file) return;
   item.status = 'preparing';
-  item.progress = 3;
-  startProgress(item, 18);
+  item.progress = 2;
 
   const signed = await signUploadApi({
     filename: item.file.name,
@@ -231,97 +287,86 @@ async function runLocalUpload(item: QueueItem) {
     albumId: form.albumId || undefined,
     visibility: item.visibility,
     storageProvider: item.storageProvider,
-  }).finally(() => stopProgress(item.id));
+  });
 
   item.status = 'uploading';
-  setProgress(item, 22);
-  startProgress(item, 82, 700);
+  item.progress = 5;
   const uploaded = await putObject(
     signed.uploadUrl,
     item.file,
     signed.headers,
     (percent) => {
-      setProgress(item, percent * 0.66 + 22);
+      // Real upload progress from the PUT request: 5% (signed) -> 90%.
+      item.progress = Math.min(90, Math.max(item.progress, 5 + Math.round(percent * 0.85)));
     },
-  ).finally(() => stopProgress(item.id));
+  );
 
   const image =
     'id' in uploaded
       ? uploaded
-      : await completeUploadApi(signed.imageId).finally(() =>
-          stopProgress(item.id),
-        );
+      : await completeUploadApi(signed.imageId);
 
-  item.status = image.status === 'PROCESSING' ? 'processing' : 'success';
-  setProgress(item, item.status === 'processing' ? 96 : 100);
-  if (item.status === 'processing') {
-    startProgress(item, 99, 700);
+  item.imageId = image.id;
+  item.progress = 92;
+  if (image.status === 'PROCESSING' || image.status === 'PENDING') {
+    item.status = 'processing';
+    item.progress = 95;
+    void pollImageStatus(item, image.id);
+    return;
   }
-
-  item.url =
-    item.visibility !== 'PRIVATE'
-      ? toAbsoluteUrl(image.publicUrl || signed.publicUrl)
-      : '';
-  if (item.status === 'processing') {
-    const timer = window.setTimeout(() => {
-      processingTimers.delete(item.id);
-      if (
-        !queue.value.some((current) => current.id === item.id) ||
-        item.status !== 'processing'
-      ) {
-        return;
-      }
-
-      stopProgress(item.id);
-      item.status = 'success';
-      item.progress = 100;
-      rememberResult(item);
-      scheduleAutoRemove(item);
-    }, 1200);
-    processingTimers.set(item.id, timer);
+  if (image.status === 'FAILED') {
+    item.status = 'failed';
+    item.failedStage = 'processing';
+    item.error = '图片处理失败，可点击“重试”重新处理';
     return;
   }
 
-  item.progress = 100;
-  rememberResult(item);
-  scheduleAutoRemove(item);
+  finishAsReady(item, { ...image, publicUrl: image.publicUrl || signed.publicUrl });
 }
 
 async function runRemoteImport(item: QueueItem) {
   if (!item.remoteUrl) return;
   item.status = 'processing';
-  item.progress = 5;
-  startProgress(item, 92, 700);
+  item.progress = 50;
   const image = await importUrlApi({
     url: item.remoteUrl,
     filename: remoteFilename.value.trim() || undefined,
     albumId: form.albumId || undefined,
     visibility: item.visibility,
     storageProvider: item.storageProvider,
-  }).finally(() => stopProgress(item.id));
-  item.status = 'success';
-  item.progress = 100;
+  });
+  item.imageId = image.id;
   item.name = image.originalName;
   item.size = image.sizeBytes;
-  item.url =
-    image.status === 'READY' && image.visibility !== 'PRIVATE'
-      ? toAbsoluteUrl(image.publicUrl)
-      : '';
-  rememberResult(item);
-  scheduleAutoRemove(item);
+  item.progress = 92;
+  if (image.status === 'PROCESSING' || image.status === 'PENDING') {
+    item.status = 'processing';
+    item.progress = 95;
+    void pollImageStatus(item, image.id);
+    return;
+  }
+  if (image.status === 'FAILED') {
+    item.status = 'failed';
+    item.failedStage = 'processing';
+    item.error = '图片处理失败，可点击“重试”重新处理';
+    return;
+  }
+  finishAsReady(item, image);
 }
 
 async function runQueueItem(item: QueueItem) {
   try {
     item.error = '';
+    item.failedStage = undefined;
     if (item.source === 'remote') {
       await runRemoteImport(item);
     } else {
       await runLocalUpload(item);
     }
   } catch (error) {
-    stopProgress(item.id);
+    stopPolling(item.id);
     item.status = 'failed';
+    item.failedStage = 'upload';
     item.error = error instanceof Error ? error.message : '上传失败';
   }
 }
@@ -407,8 +452,23 @@ async function importRemoteUrls() {
 }
 
 async function retry(item: QueueItem) {
-  stopProgress(item.id);
-  stopProcessingDelay(item.id);
+  stopPolling(item.id);
+  // A processing failure keeps its backend image: reprocess it and poll
+  // again instead of uploading the file a second time.
+  if (item.failedStage === 'processing' && item.imageId) {
+    item.status = 'processing';
+    item.progress = 95;
+    item.error = '';
+    try {
+      await reprocessImageApi(item.imageId);
+    } catch (error) {
+      item.status = 'failed';
+      item.error = error instanceof Error ? error.message : '重新处理失败';
+      return;
+    }
+    void pollImageStatus(item, item.imageId);
+    return;
+  }
   uploadResults.value = uploadResults.value.filter(
     (result) => result.id !== item.id,
   );
@@ -418,26 +478,14 @@ async function retry(item: QueueItem) {
 }
 
 function removeItem(id: string) {
-  stopProgress(id);
-  stopProcessingDelay(id);
-  const timer = autoRemoveTimers.get(id);
-  if (timer) {
-    window.clearTimeout(timer);
-    autoRemoveTimers.delete(id);
-  }
+  stopPolling(id);
   queue.value = queue.value.filter((item) => item.id !== id);
 }
 
 function clearFinished() {
   for (const item of queue.value) {
     if (['success', 'failed'].includes(item.status)) {
-      stopProgress(item.id);
-      stopProcessingDelay(item.id);
-      const timer = autoRemoveTimers.get(item.id);
-      if (timer) {
-        window.clearTimeout(timer);
-        autoRemoveTimers.delete(item.id);
-      }
+      stopPolling(item.id);
     }
   }
   queue.value = queue.value.filter(
@@ -538,18 +586,10 @@ onUnmounted(() => {
   window.removeEventListener('dragover', handleDragOver);
   window.removeEventListener('dragleave', handleDragLeave);
   window.removeEventListener('drop', handleDrop);
-  for (const timer of autoRemoveTimers.values()) {
-    window.clearTimeout(timer);
-  }
-  for (const timer of progressTimers.values()) {
+  for (const timer of pollTimers.values()) {
     window.clearInterval(timer);
   }
-  for (const timer of processingTimers.values()) {
-    window.clearTimeout(timer);
-  }
-  autoRemoveTimers.clear();
-  progressTimers.clear();
-  processingTimers.clear();
+  pollTimers.clear();
 });
 </script>
 
@@ -704,6 +744,18 @@ onUnmounted(() => {
                 :status="item.status === 'failed' ? 'exception' : undefined"
               />
               <p v-if="item.error">{{ item.error }}</p>
+              <p
+                v-if="
+                  item.status === 'success' &&
+                  !item.url &&
+                  item.visibility === 'PRIVATE'
+                "
+              >
+                私有图片没有公开链接，可在图片库查看或改为公开后分享。
+              </p>
+              <p v-if="item.status === 'processing'">
+                正在等待服务器处理完成，状态为实时查询结果。
+              </p>
             </div>
             <div class="queue-actions">
               <el-button
@@ -713,10 +765,19 @@ onUnmounted(() => {
                 @click="copyText(item.url, '外链')"
               />
               <el-button
+                v-if="item.imageId"
+                size="small"
+                @click="openInLibrary(item)"
+              >
+                在图片库查看
+              </el-button>
+              <el-button
                 v-if="item.status === 'failed'"
                 size="small"
                 @click="retry(item)"
-                >重试</el-button
+                >{{
+                  item.failedStage === 'processing' ? '重新处理' : '重试'
+                }}</el-button
               >
               <el-button size="small" text @click="removeItem(item.id)"
                 >移除</el-button
@@ -792,6 +853,13 @@ onUnmounted(() => {
           :rows="12"
           readonly
         />
+        <p v-if="privateSuccessCount > 0" class="result-note">
+          其中 {{ privateSuccessCount }}
+          张为私有图片，没有公开链接；请在图片库查看，或改为公开 / 隐藏链接后分享。
+        </p>
+        <p v-else-if="successItems.length && !outputText" class="result-note">
+          本次成功的图片暂无可复制的公开链接。
+        </p>
       </el-card>
     </aside>
   </div>

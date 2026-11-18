@@ -21,16 +21,16 @@ services:
       FRAME_ANCESTORS: ${FRAME_ANCESTORS:-self}
       TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-false}
     ports:
-      - "${APP_BIND_ADDRESS:-0.0.0.0}:${APP_HOST_PORT:-7899}:7899"
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_HOST_PORT:-7899}:7899"
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:7899/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:7899/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -51,7 +51,12 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       LOCAL_STORAGE_PATH: /app/backend/storage
-      CORS_ORIGIN: http://localhost:7899,http://127.0.0.1:7899
+      # The frontend proxies /api to the backend and forwards the browser's
+      # Origin header, so the public origin must be allowed too. When
+      # CORS_ORIGIN is set explicitly it wins; otherwise the public URL plus
+      # localhost are allowed. (Previously this was hardcoded to localhost
+      # only, which broke every public-domain / public-IP deployment.)
+      CORS_ORIGIN: ${CORS_ORIGIN:-${APP_PUBLIC_URL:-http://localhost:7899},http://localhost:7899,http://127.0.0.1:7899}
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-}
       ALLOW_REGISTER: ${ALLOW_REGISTER:-false}
       TRUST_PROXY: ${TRUST_PROXY:-loopback, linklocal, uniquelocal}
@@ -70,10 +75,11 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/system/ping').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3000/api/system/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
       interval: 15s
       timeout: 5s
       retries: 5
+      start_period: 30s
     security_opt:
       - no-new-privileges:true
     cap_drop:

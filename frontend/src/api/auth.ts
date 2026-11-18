@@ -53,8 +53,13 @@ export function resetPasswordApi(payload: {
   );
 }
 
+export function logoutApi() {
+  return http.post<unknown, { ok: boolean }>('/auth/logout', {});
+}
+
 export function meApi() {
-  return http.get<unknown, User>('/auth/me');
+  // Background session check on app load: no toast for a stale token.
+  return http.get<unknown, User>('/auth/me', { silent: true });
 }
 
 export function updateProfileApi(payload: {

@@ -1,0 +1,21 @@
+[Unit]
+Description=PicVault (Docker Compose stack)
+After=network-online.target docker.service
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/picvault
+# Compose owns the containers; this unit only starts/stops the stack.
+# (The old ops/picvault-backend.service and ops/picvault-frontend.service
+# ran bare `node` processes that conflicted with the Compose containers —
+# same ports, no EnvironmentFile/User, wrong WorkingDirectory — so they
+# were deleted. Use this wrapper instead.)
+ExecStart=/usr/bin/docker compose up -d --build
+ExecStop=/usr/bin/docker compose down
+ExecReload=/usr/bin/docker compose up -d --build
+
+[Install]
+WantedBy=multi-user.target

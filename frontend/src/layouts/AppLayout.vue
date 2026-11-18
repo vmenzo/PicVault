@@ -8,7 +8,9 @@ import {
   Key,
   Link,
   Menu,
+  Moon,
   Plus,
+  Sunny,
   Picture,
   Search,
   SetUp,
@@ -25,6 +27,25 @@ const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
 const mobileNavVisible = ref(false);
+const isDark = ref(false);
+const THEME_KEY = 'picvault-theme';
+
+function applyTheme(dark: boolean) {
+  isDark.value = dark;
+  document.documentElement.setAttribute(
+    'data-theme',
+    dark ? 'dark' : 'light',
+  );
+  try {
+    localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light');
+  } catch {
+    /* storage unavailable — theme still applies for this session */
+  }
+}
+
+function toggleTheme() {
+  applyTheme(!isDark.value);
+}
 const globalQuery = ref('');
 const globalSearchRef = ref<{ focus: () => void }>();
 const avatarLoadFailed = ref(false);
@@ -96,7 +117,21 @@ function handleShortcut(event: KeyboardEvent) {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', handleShortcut));
+onMounted(() => {
+  window.addEventListener('keydown', handleShortcut);
+  // index.html applies the stored theme before first paint; re-read it
+  // here so the toggle icon matches.
+  let stored: string | null = null;
+  try {
+    stored = localStorage.getItem(THEME_KEY);
+  } catch {
+    stored = null;
+  }
+  isDark.value =
+    stored === 'dark' ||
+    (stored !== 'light' &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches);
+});
 onUnmounted(() => window.removeEventListener('keydown', handleShortcut));
 
 watch(
@@ -130,7 +165,7 @@ function handleUserCommand(command: string) {
 
 <template>
   <el-container class="app-shell">
-    <el-aside width="220px" class="app-sidebar">
+    <el-aside width="240px" class="app-sidebar">
       <button
         class="brand"
         type="button"
@@ -233,6 +268,13 @@ function handleUserCommand(command: string) {
           >
             上传
           </el-button>
+          <el-button
+            :icon="isDark ? Sunny : Moon"
+            :aria-label="isDark ? '切换到浅色模式' : '切换到深色模式'"
+            :aria-pressed="isDark"
+            circle
+            @click="toggleTheme"
+          />
           <el-dropdown trigger="click" @command="handleUserCommand">
             <button class="user-button">
               <span>

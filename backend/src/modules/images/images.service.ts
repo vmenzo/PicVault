@@ -22,6 +22,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { StorageRuntimeConfig } from '../storage/storage.service';
 import { StorageService } from '../storage/storage.service';
+import { serializeImage } from './serialize-image';
 import {
   BulkImageAction,
   BulkImageActionDto,
@@ -120,10 +121,14 @@ export class ImagesService implements OnModuleInit, OnModuleDestroy {
 
     return {
       items: items.map((image) =>
-        this.serializeImage(image, {
-          ...runtime,
-          storageProvider: image.storageProvider,
-        }),
+        serializeImage(
+          image,
+          {
+            ...runtime,
+            storageProvider: image.storageProvider,
+          },
+          this.storage,
+        ),
       ),
       total,
       page,
@@ -184,6 +189,29 @@ export class ImagesService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  async get(ownerId: string, id: string) {
+    await this.ensureOwner(ownerId, id);
+    const image = await this.prisma.image.findUnique({
+      where: { id },
+      include: {
+        album: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+    if (!image) {
+      throw new ForbiddenException('Image is not accessible');
+    }
+    return serializeImage(
+      image,
+      await this.getImageStorageSetting(ownerId, image.storageProvider),
+      this.storage,
+    );
+  }
+
   async update(ownerId: string, id: string, dto: UpdateImageDto) {
     await this.ensureOwner(ownerId, id);
 
@@ -220,9 +248,10 @@ export class ImagesService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    return this.serializeImage(
+    return serializeImage(
       image,
       await this.getImageStorageSetting(ownerId, image.storageProvider),
+      this.storage,
     );
   }
 
@@ -311,9 +340,10 @@ export class ImagesService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    return this.serializeImage(
+    return serializeImage(
       restoredImage,
       await this.getImageStorageSetting(ownerId, restoredImage.storageProvider),
+      this.storage,
     );
   }
 
@@ -755,12 +785,13 @@ export class ImagesService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    return this.serializeImage(
+    return serializeImage(
       {
         ...image,
         views: image.views + 1,
       },
       await this.getImageStorageSetting(image.ownerId, image.storageProvider),
+      this.storage,
     );
   }
 
@@ -886,35 +917,6 @@ export class ImagesService implements OnModuleInit, OnModuleDestroy {
     if (!image || image.ownerId !== ownerId) {
       throw new ForbiddenException('Image is not accessible');
     }
-  }
-
-  private serializeImage<
-    T extends {
-      sizeBytes: bigint;
-      storageKey: string;
-      storageProvider: StorageProvider;
-      thumbKey?: string | null;
-      webpKey?: string | null;
-      avifKey?: string | null;
-      thumbUrl?: string | null;
-      webpUrl?: string | null;
-      avifUrl?: string | null;
-    },
-  >(image: T, setting: StorageRuntimeConfig) {
-    return {
-      ...image,
-      sizeBytes: Number(image.sizeBytes),
-      publicUrl: this.storage.getPublicUrlWithBase(image.storageKey, setting),
-      thumbUrl: image.thumbKey
-        ? this.storage.getPublicUrlWithBase(image.thumbKey, setting)
-        : (image.thumbUrl ?? null),
-      webpUrl: image.webpKey
-        ? this.storage.getPublicUrlWithBase(image.webpKey, setting)
-        : (image.webpUrl ?? null),
-      avifUrl: image.avifKey
-        ? this.storage.getPublicUrlWithBase(image.avifKey, setting)
-        : (image.avifUrl ?? null),
-    };
   }
 
   private selectAssetKey(

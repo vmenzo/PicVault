@@ -4,5 +4,8 @@ Description=PicVault Backup
 [Service]
 Type=oneshot
 WorkingDirectory=/opt/picvault
-EnvironmentFile=/opt/picvault/.env
+# NOTE: no EnvironmentFile here on purpose. The old EnvironmentFile=/opt/picvault/.env
+# injected PICVAULT_BACKUP_DIR=/app/backups (the *in-container* path) into the host
+# backup script, which then wrote backups to a bogus /app/backups on the host.
+# scripts/backup.sh sources .env itself and maps the container path to the host path.
 ExecStart=/opt/picvault/scripts/backup.sh

@@ -11,7 +11,7 @@ export function getAppSettingApi() {
 }
 
 export function getUploadPolicyApi() {
-  return http.get<unknown, UploadPolicy>('/settings/app');
+  return http.get<unknown, UploadPolicy>('/settings/upload-policy');
 }
 
 export function updateAppSettingApi(payload: {
@@ -70,6 +70,7 @@ export function testStorageApi() {
       provider: StorageProvider;
       endpoint?: string | null;
       bucket?: string | null;
+      path?: string | null;
       message: string;
     }
   >('/settings/app/storage-test', {});

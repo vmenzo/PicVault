@@ -53,6 +53,39 @@ export class SettingsService {
   }
 
   async update(ownerId: string, dto: UpdateAppSettingDto) {
+    // Fail closed for Telegram: the bot must never run with an empty
+    // allowlist — an empty list means "nobody is allowed", not "everyone".
+    if (
+      dto.telegramBotEnabled === true ||
+      dto.telegramAllowedChatIds !== undefined
+    ) {
+      const current = await this.prisma.appSetting.findUnique({
+        where: { ownerId },
+        select: { telegramBotEnabled: true, telegramAllowedChatIds: true },
+      });
+      const enabled =
+        dto.telegramBotEnabled ?? current?.telegramBotEnabled ?? false;
+      const allowedIds =
+        dto.telegramAllowedChatIds !== undefined
+          ? this.normalizeChatIds(dto.telegramAllowedChatIds)
+          : (current?.telegramAllowedChatIds ?? []);
+      if (enabled && allowedIds.length === 0) {
+        throw new BadRequestException(
+          '启用 Telegram Bot 前必须先配置至少一个允许的 Chat ID，空白名单表示不允许任何人操作',
+        );
+      }
+    }
+
+    // APP_PUBLIC_URL (and the image base URL) are used to build links sent
+    // to users (e.g. password-reset emails); a malformed value must be
+    // rejected when saved, not when the link is later built.
+    if (dto.appPublicUrl !== undefined) {
+      this.assertPublicUrl(dto.appPublicUrl, 'appPublicUrl');
+    }
+    if (dto.publicBaseUrl !== undefined) {
+      this.assertPublicUrl(dto.publicBaseUrl, 'publicBaseUrl');
+    }
+
     const data = this.toData(dto);
     const setting = await this.prisma.appSetting.upsert({
       where: { ownerId },
@@ -138,6 +171,8 @@ export class SettingsService {
       return {
         ok: true,
         provider: setting.storageProvider,
+        endpoint: null,
+        bucket: null,
         path,
         message: 'Local storage is readable and writable',
       };
@@ -149,6 +184,7 @@ export class SettingsService {
       provider: setting.storageProvider,
       endpoint: setting.s3Endpoint,
       bucket: setting.s3Bucket,
+      path: null,
       message: 'Third-party object storage is reachable',
     };
   }
@@ -258,7 +294,9 @@ export class SettingsService {
       data.telegramBotToken = this.clean(dto.telegramBotToken);
     }
     if (dto.telegramAllowedChatIds !== undefined) {
-      data.telegramAllowedChatIds = dto.telegramAllowedChatIds;
+      data.telegramAllowedChatIds = this.normalizeChatIds(
+        dto.telegramAllowedChatIds,
+      );
     }
     if (dto.telegramAlbumId !== undefined) {
       data.telegramAlbumId = this.clean(dto.telegramAlbumId);
@@ -280,6 +318,7 @@ export class SettingsService {
 
   private serialize(setting: {
     id: string;
+    ownerId: string;
     publicBaseUrl: string | null;
     appPublicUrl: string | null;
     storageProvider: StorageProvider;
@@ -320,11 +359,26 @@ export class SettingsService {
     createdAt: Date;
     updatedAt: Date;
   }) {
+    // Secrets are returned as the '********' sentinel ('' when unset),
+    // never as their real value; the frontend sends the sentinel back
+    // unchanged and toData() skips it, so a load-then-save round-trip
+    // does not wipe them. That is also why there are no `hasX` flags
+    // yet: switching the secrets to `null` would make a plain save clear
+    // them, because toData() treats an explicit null as "clear". Any
+    // future null + hasX change must also teach the frontend to omit
+    // unchanged secrets (or re-send the sentinel) and toData() to
+    // distinguish "unchanged" from "clear".
+    // maxSizeBytes (raw bytes) and ownerId are internal and are dropped;
+    // clients use the derived maxSizeMb.
+    const { maxSizeBytes, ownerId, ...rest } = setting;
+    void maxSizeBytes;
+    void ownerId;
     return {
-      ...setting,
+      ...rest,
       s3AccessKey: setting.s3AccessKey ? SECRET_MASK : '',
       s3SecretKey: setting.s3SecretKey ? SECRET_MASK : '',
       telegramBotToken: setting.telegramBotToken ? SECRET_MASK : '',
+      smtpUsername: setting.smtpUsername ? SECRET_MASK : '',
       smtpPassword: setting.smtpPassword ? SECRET_MASK : '',
       maxSizeMb: Math.round(setting.maxSizeBytes / 1024 / 1024),
       defaultQuotaBytes: Number(setting.defaultQuotaBytes),
@@ -332,6 +386,24 @@ export class SettingsService {
         Number(setting.defaultQuotaBytes) / 1024 / 1024,
       ),
     };
+  }
+
+  private normalizeChatIds(chatIds: string[]) {
+    return [...new Set(chatIds.map((id) => id.trim()).filter(Boolean))];
+  }
+
+  private assertPublicUrl(value: string | null | undefined, field: string) {
+    const cleaned = value?.trim();
+    if (!cleaned) return; // Clearing the value is allowed; env validation covers prod.
+    let parsed: URL;
+    try {
+      parsed = new URL(cleaned);
+    } catch {
+      throw new BadRequestException(`${field} 必须是有效的 URL`);
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new BadRequestException(`${field} 必须使用 http:// 或 https://`);
+    }
   }
 
   private clean(value: string | null | undefined) {

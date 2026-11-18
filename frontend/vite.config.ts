@@ -64,5 +64,11 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Dev only: proxy /api to the backend so `vite dev` reaches it with
+    // the default baseURL '/api'. Production is served by
+    // frontend/server.mjs, which proxies /api to BACKEND_HOST:BACKEND_PORT.
+    proxy: {
+      '/api': 'http://127.0.0.1:3000',
+    },
   },
 });
