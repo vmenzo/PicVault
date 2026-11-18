@@ -190,10 +190,69 @@ async function serveStatic(req, res) {
   createReadStream(filePath).pipe(res);
 }
 
+/**
+ * Probe the backend's unauthenticated readiness endpoint
+ * (GET /api/system/ready), which itself checks Postgres + Redis.
+ * Resolves { ok } and never throws: any transport error, timeout, or
+ * non-ok payload means the backend is not ready.
+ */
+function checkBackendReady(timeoutMs = 2000) {
+  return new Promise((resolve) => {
+    const settle = (value) => resolve(value);
+    const req = proxyRequest(
+      {
+        hostname: backendHost,
+        port: backendPort,
+        path: '/api/system/ready',
+        method: 'GET',
+        timeout: timeoutMs,
+      },
+      (upstreamRes) => {
+        let body = '';
+        upstreamRes.on('data', (chunk) => {
+          body += chunk;
+        });
+        upstreamRes.on('end', () => {
+          let ok = false;
+          try {
+            ok = upstreamRes.statusCode === 200 && JSON.parse(body).status === 'ok';
+          } catch {
+            ok = false;
+          }
+          settle({ ok, httpStatus: upstreamRes.statusCode ?? 0 });
+        });
+      },
+    );
+    req.on('timeout', () => {
+      req.destroy();
+      settle({ ok: false, httpStatus: 0 });
+    });
+    req.on('error', () => settle({ ok: false, httpStatus: 0 }));
+    req.end();
+  });
+}
+
+async function handleHealth(req, res) {
+  // /healthz and /readyz are only "ok" when the backend (and through it
+  // Postgres + Redis) is reachable. A frontend that can serve static
+  // files while its API is down must not report healthy.
+  const backend = await checkBackendReady();
+  const healthy = backend.ok;
+  const payload = {
+    status: healthy ? 'ok' : 'error',
+    backend: healthy ? 'ok' : 'unavailable',
+    uptimeSeconds: Math.round(process.uptime()),
+  };
+  res.writeHead(healthy ? 200 : 503, baseHeaders({
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-cache',
+  }));
+  res.end(JSON.stringify(payload));
+}
+
 createServer(async (req, res) => {
-  if (req.url === '/healthz') {
-    res.writeHead(200, baseHeaders({ 'content-type': 'application/json; charset=utf-8' }));
-    res.end(JSON.stringify({ status: 'ok' }));
+  if (req.url === '/healthz' || req.url === '/readyz') {
+    await handleHealth(req, res);
     return;
   }
 

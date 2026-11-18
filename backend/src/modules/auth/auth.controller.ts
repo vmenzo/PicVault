@@ -29,6 +29,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { LoginThrottleGuard } from './login-throttle.guard';
 import { PasswordResetThrottleGuard } from './password-reset-throttle.guard';
+import { AuthAttemptThrottleGuard } from './auth-attempt-throttle.guard';
 
 @ApiTags('auth')
 @Controller('auth')
@@ -41,12 +42,11 @@ export class AuthController {
 
   @Get('registration-status')
   async registrationStatus() {
-    const [userCount, registrationEnabled, smtpConfigured] =
-      await Promise.all([
-        this.prisma.user.count(),
-        this.auth.registrationEnabled(),
-        this.auth.registrationVerificationRequired(),
-      ]);
+    const [userCount, registrationEnabled, smtpConfigured] = await Promise.all([
+      this.prisma.user.count(),
+      this.auth.registrationEnabled(),
+      this.auth.registrationVerificationRequired(),
+    ]);
 
     return {
       firstUser: userCount === 0,
@@ -56,8 +56,15 @@ export class AuthController {
   }
 
   @Post('register')
+  @UseGuards(AuthAttemptThrottleGuard)
   async register(@Body() dto: RegisterDto) {
-    if (!(await this.auth.registrationEnabled())) {
+    // Bootstrap: the very first account may always register and becomes
+    // the admin, even when registration is otherwise closed. Without this
+    // a fresh install with the default ALLOW_REGISTER=false can never
+    // create an admin and is unusable out of the box (the service-level
+    // bootstrap in AuthService.register is unreachable behind this gate).
+    const userCount = await this.prisma.user.count();
+    if (userCount > 0 && !(await this.auth.registrationEnabled())) {
       throw new ForbiddenException('Registration is disabled');
     }
 
@@ -94,8 +101,18 @@ export class AuthController {
   }
 
   @Post('password-reset/confirm')
+  @UseGuards(AuthAttemptThrottleGuard)
   resetPassword(@Body() dto: ResetPasswordDto, @Req() request: Request) {
     return this.auth.resetPassword(dto, request);
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  async logout(@Req() request: Request) {
+    // Revoke the exact session token presented, so a copied token stops
+    // working immediately. Idempotent: revoking twice is a no-op.
+    return this.auth.logout(this.extractBearerToken(request));
   }
 
   @Get('me')
@@ -113,9 +130,11 @@ export class AuthController {
         role: true,
         quotaBytes: true,
         usedBytes: true,
-        createdAt: true,
       },
     });
+
+    // Same shape as serializeUser(): no createdAt (the frontend User
+    // type has no such field).
 
     return {
       ...profile,
@@ -143,5 +162,12 @@ export class AuthController {
     @Body() dto: ChangePasswordDto,
   ) {
     return this.auth.changePassword(user.id, dto);
+  }
+
+  private extractBearerToken(request: Request) {
+    const header = request.headers.authorization;
+    const value = Array.isArray(header) ? header[0] : header;
+    const [type, token] = value?.split(' ') ?? [];
+    return type?.toLowerCase() === 'bearer' && token ? token : '';
   }
 }

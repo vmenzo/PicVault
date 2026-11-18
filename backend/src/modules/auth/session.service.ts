@@ -1,15 +1,50 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'node:crypto';
 import { generateOpaqueToken } from '../../common/tokens';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
-export class SessionService {
+export class SessionService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(SessionService.name);
+  private cleanupTimer?: NodeJS.Timeout;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {}
+
+  onModuleInit() {
+    // Expired sessions were never cleaned up (cleanupExpired() had no
+    // caller). Sweep hourly, plus once shortly after boot, so revoked /
+    // expired rows do not accumulate.
+    this.cleanupTimer = setInterval(
+      () => void this.cleanupExpiredSafe(),
+      60 * 60 * 1000,
+    );
+    this.cleanupTimer.unref();
+    setTimeout(() => void this.cleanupExpiredSafe(), 60_000).unref();
+  }
+
+  onModuleDestroy() {
+    if (this.cleanupTimer) clearInterval(this.cleanupTimer);
+  }
+
+  private async cleanupExpiredSafe() {
+    try {
+      await this.cleanupExpired();
+    } catch (error) {
+      this.logger.error(
+        'Expired session cleanup failed',
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
 
   async create(userId: string) {
     const token = generateOpaqueToken();

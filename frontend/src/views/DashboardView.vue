@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { ArrowRight, Picture, UploadFilled } from '@element-plus/icons-vue';
+import { Picture, UploadFilled } from '@element-plus/icons-vue';
 import { useRouter } from 'vue-router';
 import { imageStatsApi, listImagesApi } from '@/api/images';
+import MetricCard from '@/components/MetricCard.vue';
+import PageHeader from '@/components/PageHeader.vue';
+import PanelCard from '@/components/PanelCard.vue';
 import ProtectedImage from '@/components/ProtectedImage.vue';
 import type { ImageItem, ImageStats, ImageStatus } from '@/api/types';
 import { formatBytes, formatDate, statusLabel } from '@/utils/format';
@@ -51,15 +54,23 @@ const chartSegments = computed(() => {
   }));
 });
 
-const chartStyle = computed(() => {
-  if (!stats.value.total) return { background: '#e8ece9' };
+// Inline SVG donut geometry (replaces the CSS conic-gradient div).
+const donutRadius = 80;
+const donutCircumference = 2 * Math.PI * donutRadius;
+const donutSegments = computed(() => {
+  const total = stats.value.total || 0;
   let offset = 0;
-  const stops = chartSegments.value.map((segment) => {
-    const start = offset;
-    offset += segment.value / stats.value.total;
-    return `${segment.color} ${start * 360}deg ${offset * 360}deg`;
+  return chartSegments.value.map((segment) => {
+    const fraction = total ? segment.value / total : 0;
+    const length = fraction * donutCircumference;
+    const item = {
+      ...segment,
+      dasharray: `${length} ${donutCircumference - length}`,
+      dashoffset: -offset * donutCircumference,
+    };
+    offset += fraction;
+    return item;
   });
-  return { background: `conic-gradient(${stops.join(', ')})` };
 });
 
 function openStatus(status: ImageStatus) {
@@ -83,13 +94,12 @@ onMounted(async () => {
 
 <template>
   <div class="page-stack" v-loading="loading">
-    <section class="dashboard-command">
-      <div>
-        <span class="dashboard-command-label">资产工作台</span>
-        <h2>图片都在这里，随取随用。</h2>
-        <p>上传、整理并生成可直接分享的图片链接。</p>
-      </div>
-      <div class="dashboard-command-actions">
+    <PageHeader
+      eyebrow="资产工作台"
+      title="图片都在这里，随取随用。"
+      subtitle="上传、整理并生成可直接分享的图片链接。"
+    >
+      <template #actions>
         <el-button :icon="Picture" @click="router.push('/library')">
           浏览图片库
         </el-button>
@@ -100,56 +110,122 @@ onMounted(async () => {
         >
           上传图片
         </el-button>
-      </div>
-    </section>
+      </template>
+    </PageHeader>
 
     <section class="dashboard-metrics" aria-label="资产概览">
-      <button type="button" @click="router.push('/library')">
-        <span>全部图片</span><strong>{{ stats.total }}</strong>
-        <small>查看全部资产 <el-icon><ArrowRight /></el-icon></small>
-      </button>
-      <button type="button" @click="openStatus('READY')">
-        <span>可正常访问</span><strong>{{ stats.ready }}</strong>
-        <small>已完成处理</small>
-      </button>
-      <button type="button" @click="openStatus('PROCESSING')">
-        <span>正在处理</span><strong>{{ stats.pending }}</strong>
-        <small>等待生成链接</small>
-      </button>
-      <button type="button" @click="router.push('/albums')">
-        <span>相册</span><strong>{{ stats.albums }}</strong>
-        <small>整理图片集合</small>
-      </button>
+      <MetricCard
+        label="全部图片"
+        :value="stats.total"
+        hint="查看全部资产"
+        clickable
+        @click="router.push('/library')"
+      />
+      <MetricCard
+        label="可正常访问"
+        :value="stats.ready"
+        hint="已完成处理"
+        clickable
+        @click="openStatus('READY')"
+      />
+      <MetricCard
+        label="正在处理"
+        :value="stats.pending"
+        hint="等待生成链接"
+        clickable
+        @click="openStatus('PROCESSING')"
+      />
+      <MetricCard
+        label="相册"
+        :value="stats.albums"
+        hint="整理图片集合"
+        clickable
+        @click="router.push('/albums')"
+      />
     </section>
 
     <section class="dashboard-workspace">
-      <el-card shadow="never" class="panel-card dashboard-chart-card">
-        <template #header>
-          <div class="panel-head">
-            <div>
-              <strong>资产状态分布</strong>
-              <span>当前图片的处理与可用状态</span>
-            </div>
-            <el-button link type="primary" @click="router.push('/library')">查看图片库</el-button>
-          </div>
+      <PanelCard
+        title="资产状态分布"
+        subtitle="当前图片的处理与可用状态"
+        class="dashboard-chart-card"
+      >
+        <template #action>
+          <el-button link type="primary" @click="router.push('/library')"
+            >查看图片库</el-button
+          >
         </template>
         <div class="asset-chart-layout">
-          <div
-            class="asset-donut"
-            :style="chartStyle"
-            role="img"
-            :aria-label="`共 ${stats.total} 项资产`"
-          >
-            <div class="asset-donut-center">
-              <strong>{{ stats.total }}</strong>
-              <span>全部资产</span>
-            </div>
+          <div class="asset-donut">
+            <svg
+              class="asset-donut-svg"
+              viewBox="0 0 200 200"
+              role="img"
+              :aria-label="`资产状态分布，共 ${stats.total} 项资产`"
+            >
+              <g transform="rotate(-90 100 100)">
+                <circle
+                  class="donut-track"
+                  cx="100"
+                  cy="100"
+                  :r="donutRadius"
+                  stroke-width="28"
+                />
+                <circle
+                  v-for="segment in donutSegments"
+                  :key="segment.status"
+                  class="donut-segment"
+                  cx="100"
+                  cy="100"
+                  :r="donutRadius"
+                  stroke-width="28"
+                  :stroke="segment.color"
+                  :stroke-dasharray="segment.dasharray"
+                  :stroke-dashoffset="segment.dashoffset"
+                />
+              </g>
+              <text
+                x="100"
+                y="98"
+                text-anchor="middle"
+                font-size="30"
+                font-weight="700"
+              >
+                {{ stats.total }}
+              </text>
+              <text
+                x="100"
+                y="120"
+                text-anchor="middle"
+                class="donut-label"
+              >
+                全部资产
+              </text>
+            </svg>
+            <table class="pv-sr-only">
+              <caption>资产状态分布</caption>
+              <thead>
+                <tr>
+                  <th scope="col">状态</th>
+                  <th scope="col">数量</th>
+                  <th scope="col">占比</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="segment in chartSegments" :key="segment.status">
+                  <td>{{ segment.label }}</td>
+                  <td>{{ segment.value }}</td>
+                  <td>{{ segment.percentage }}%</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
           <div class="asset-chart-legend">
             <button
               v-for="segment in chartSegments"
               :key="segment.status"
               type="button"
+              :aria-label="`${segment.label} ${segment.value} 项，占 ${segment.percentage}%`"
               @click="openStatus(segment.status)"
             >
               <i :style="{ background: segment.color }"></i>
@@ -181,7 +257,7 @@ onMounted(async () => {
           </div>
           <el-empty v-else description="暂无上传记录" :image-size="54" />
         </div>
-      </el-card>
+      </PanelCard>
 
       <aside class="dashboard-side">
         <section class="storage-strip">

@@ -22,6 +22,12 @@ WORKDIR /app/frontend
 COPY --from=build /app/frontend/dist ./dist
 COPY frontend/server.mjs ./server.mjs
 
+# The frontend server only reads dist/ and listens on 7899 (>1024), so it
+# can run as the unprivileged "node" user from the base image. COPY
+# preserves the host file modes, so re-own the tree first (see backend).
+RUN chown -R node:node /app/frontend
+USER node
+
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=7899

@@ -1,12 +1,5 @@
 :root {
-  font-family:
-    Inter,
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    sans-serif;
+  font-family: var(--pv-font-sans);
   color: #18201c;
   background: #f2f5f3;
   font-synthesis: none;
@@ -247,12 +240,15 @@ button {
 }
 
 .app-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
   height: auto;
-  min-height: 78px;
-  padding: 14px 32px;
+  min-height: var(--pv-header-height, 64px);
+  padding: 8px 32px;
   border-bottom: 1px solid #dfe6e2;
   background: rgba(250, 252, 251, 0.94);
   backdrop-filter: blur(10px);
@@ -333,7 +329,7 @@ button {
 
 .app-main {
   width: 100%;
-  max-width: 1680px;
+  max-width: var(--pv-content-max-width, 1280px);
   padding: 26px 32px 44px;
   margin: 0 auto;
 }
@@ -506,42 +502,11 @@ button {
   padding: 22px 30px 30px;
 }
 
+/* Asset donut is now an inline SVG (.asset-donut-svg, tokens.css);
+   the old conic-gradient div + ::after ring were removed with it. */
 .asset-donut {
-  position: relative;
-  width: min(270px, 100%);
-  aspect-ratio: 1;
-  justify-self: center;
-  border-radius: 50%;
-  box-shadow: inset 0 0 0 1px rgba(24, 32, 28, 0.05);
-}
-
-.asset-donut::after {
-  position: absolute;
-  inset: 24%;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 0 0 1px #edf0ee;
-  content: '';
-}
-
-.asset-donut-center {
-  position: absolute;
-  z-index: 1;
-  inset: 25%;
   display: grid;
-  place-content: center;
-  text-align: center;
-}
-
-.asset-donut-center strong {
-  font-size: 38px;
-  line-height: 1;
-}
-
-.asset-donut-center span {
-  margin-top: 8px;
-  color: #737b77;
-  font-size: 13px;
+  place-items: center;
 }
 
 .asset-chart-legend {
@@ -1189,6 +1154,49 @@ button {
   display: block;
 }
 
+.album-table .el-table__row {
+  cursor: pointer;
+}
+
+.album-cover {
+  width: 56px;
+  height: 56px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #e8ece9;
+}
+
+.album-cover-empty {
+  display: grid;
+  place-items: center;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.album-toolbar {
+  margin-bottom: 12px;
+}
+
+.toolbar-count {
+  align-self: center;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.album-pagination {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.control-center-alert {
+  margin-bottom: 4px;
+}
+
+.control-center-alert .el-button {
+  margin-top: 8px;
+}
+
 .upload-card {
   min-height: 560px;
 }
@@ -1249,7 +1257,7 @@ button {
 
 .form-help {
   margin-top: 6px;
-  color: var(--muted);
+  color: var(--pv-muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1385,6 +1393,12 @@ button {
 
 .result-output {
   margin-top: 12px;
+}
+
+.result-note {
+  margin: 10px 0 0;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .upload-results {
@@ -1692,7 +1706,7 @@ button {
   color: #ffffff;
   background:
     linear-gradient(135deg, rgba(15, 23, 42, 0.78), rgba(15, 23, 42, 0.42)),
-    url('https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1800&q=80')
+    url('/login-cover.jpg?v=2')
       center/cover;
 }
 
@@ -1809,6 +1823,20 @@ button {
   background: #eff6ff;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.login-status-alert {
+  margin: -6px 0 18px;
+}
+
+.login-status-alert .el-button {
+  margin-top: 8px;
+}
+
+.login-status-note {
+  margin: -6px 0 18px;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .full-button {
@@ -2128,7 +2156,7 @@ button {
     padding: 18px 4px 4px;
   }
 
-  .asset-donut {
+  .asset-donut-svg {
     width: min(230px, 72vw);
   }
 
@@ -2859,7 +2887,7 @@ button {
 @media (min-width: 981px) {
   .app-shell > .el-container {
     min-width: 0;
-    width: calc(100vw - 232px);
+    width: calc(100vw - 240px);
   }
 
   .app-main {
@@ -2931,14 +2959,14 @@ button {
     display: grid !important;
     width: 100%;
     max-width: none;
-    grid-template-columns: 232px minmax(0, 1fr);
+    grid-template-columns: 240px minmax(0, 1fr);
     align-items: start;
     overflow-x: clip;
   }
 
   .app-sidebar {
     grid-column: 1;
-    width: 232px !important;
+    width: 240px !important;
   }
 
   .app-shell > .el-container {
@@ -3209,22 +3237,7 @@ button {
   }
 }
 
-/* PicVault workspace refresh */
-:root {
-  --pv-ink: #171b1f;
-  --pv-muted: #66707a;
-  --pv-line: #dfe4e8;
-  --pv-canvas: #f4f6f7;
-  --pv-surface: #ffffff;
-  --pv-blue: #2257d7;
-  --pv-blue-soft: #eaf0ff;
-  --pv-coral: #e95445;
-  --el-color-primary: var(--pv-blue);
-  --el-border-radius-base: 7px;
-  --el-border-color: var(--pv-line);
-  color: var(--pv-ink);
-  background: var(--pv-canvas);
-}
+/* PicVault workspace refresh — tokens moved to styles/tokens.css */
 
 body,
 .app-shell {
@@ -3247,7 +3260,7 @@ a:focus-visible,
 }
 
 .app-sidebar {
-  width: 232px !important;
+  width: 240px !important;
   padding: 22px 14px 16px;
   background: #fbfcfc;
   border-color: var(--pv-line);
@@ -4749,10 +4762,10 @@ a:focus-visible,
   }
 
   .app-sidebar {
-    width: 232px !important;
-    min-width: 232px;
-    max-width: 232px;
-    flex: 0 0 232px;
+    width: 240px !important;
+    min-width: 240px;
+    max-width: 240px;
+    flex: 0 0 240px;
   }
 
   .app-shell > .el-container {

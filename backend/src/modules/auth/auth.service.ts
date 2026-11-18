@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -26,6 +27,7 @@ import {
   ResetPasswordDto,
 } from './dto/password-reset.dto';
 import { SessionService } from './session.service';
+import { VerificationThrottleService } from './verification-throttle.service';
 
 @Injectable()
 export class AuthService {
@@ -38,6 +40,7 @@ export class AuthService {
     private readonly audit: AuditService,
     private readonly sessions: SessionService,
     private readonly settings: SettingsService,
+    private readonly verificationThrottle: VerificationThrottleService,
   ) {}
 
   registrationEnabled() {
@@ -90,6 +93,11 @@ export class AuthService {
       },
     });
 
+    // Registration codes stay 6 digits: the frontend and RegisterDto
+    // enforce exactly 6 characters, and with the 5-failed-attempt voiding
+    // in verifyRegistrationCode() a 6-digit code can only be guessed 5
+    // times per email per 15 minutes, so lengthening it buys nothing
+    // while breaking existing clients.
     const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
     const expiresMinutes = Number(
       this.config.get<string>('REGISTRATION_CODE_EXPIRES_MINUTES') ?? 10,
@@ -323,7 +331,24 @@ export class AuthService {
       },
     });
 
+    // Resolve the reset URL before minting a token: buildResetUrl() refuses
+    // to build one when APP_PUBLIC_URL is not configured (it never falls
+    // back to the request Origin/Host, which an attacker controls). In
+    // that case no token is created and no email is sent; the caller still
+    // gets the generic response so nothing leaks.
     const token = generateOpaqueToken();
+    let resetUrl: string;
+    try {
+      resetUrl = await this.buildResetUrl(token);
+    } catch (error) {
+      this.logger.warn(
+        `Password reset not sent for user ${user.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return genericResponse;
+    }
+
     const expiresMinutes = Number(
       this.config.get<string>('PASSWORD_RESET_EXPIRES_MINUTES') ?? 30,
     );
@@ -342,7 +367,7 @@ export class AuthService {
       await this.mail.sendPasswordReset({
         to: user.email,
         name: user.name,
-        resetUrl: await this.buildResetUrl(request, token),
+        resetUrl,
         expiresMinutes,
       });
     } catch (error) {
@@ -371,6 +396,13 @@ export class AuthService {
     return genericResponse;
   }
 
+  async logout(token: string) {
+    if (token) {
+      await this.sessions.revoke(token);
+    }
+    return { ok: true };
+  }
+
   async resetPassword(dto: ResetPasswordDto, request: Request) {
     const resetToken = await this.prisma.passwordResetToken.findUnique({
       where: { tokenHash: this.hashToken(dto.token) },
@@ -390,6 +422,7 @@ export class AuthService {
       resetToken.expiresAt <= new Date() ||
       resetToken.user.disabled
     ) {
+      await this.recordFailedResetAttempt(resetToken?.userId, dto.token);
       throw new BadRequestException(
         'Password reset link is invalid or expired',
       );
@@ -430,6 +463,7 @@ export class AuthService {
       });
     });
     await this.sessions.revokeUser(resetToken.userId);
+    await this.verificationThrottle.clear(`reset:${resetToken.userId}`);
 
     await this.audit.record(
       {
@@ -525,6 +559,18 @@ export class AuthService {
   }
 
   private async verifyRegistrationCode(email: string, code: string) {
+    const key = `register:${email}`;
+    if (
+      (await this.verificationThrottle.failureCount(key)) >=
+      this.verificationThrottle.maxFailures()
+    ) {
+      await this.voidRegistrationCodes(email);
+      throw new HttpException(
+        'Too many failed verification attempts; the code has been voided. Request a new code.',
+        429,
+      );
+    }
+
     const now = new Date();
     const token = await this.prisma.emailVerificationCode.findFirst({
       where: {
@@ -540,13 +586,52 @@ export class AuthService {
     });
 
     if (!token) {
+      const failures = await this.verificationThrottle.recordFailure(key);
+      if (failures >= this.verificationThrottle.maxFailures()) {
+        await this.voidRegistrationCodes(email);
+        throw new HttpException(
+          'Too many failed verification attempts; the code has been voided. Request a new code.',
+          429,
+        );
+      }
       throw new BadRequestException('Verification code is invalid or expired');
     }
 
+    await this.verificationThrottle.clear(key);
     await this.prisma.emailVerificationCode.update({
       where: { id: token.id },
       data: { usedAt: now },
     });
+  }
+
+  private async voidRegistrationCodes(email: string) {
+    await this.prisma.emailVerificationCode.updateMany({
+      where: { email, purpose: 'register', usedAt: null },
+      data: { usedAt: new Date() },
+    });
+  }
+
+  private async recordFailedResetAttempt(
+    userId: string | undefined,
+    token: string,
+  ) {
+    // Keyed per user (i.e. per email) when the token maps to one, so 5
+    // failures void that user's live reset tokens; unknown tokens are
+    // keyed by token hash so guessing one token is throttled too.
+    const key = userId
+      ? `reset:${userId}`
+      : `reset:unknown:${this.hashToken(token).slice(0, 12)}`;
+    const failures = await this.verificationThrottle.recordFailure(key);
+    if (userId && failures >= this.verificationThrottle.maxFailures()) {
+      await this.prisma.passwordResetToken.updateMany({
+        where: { userId, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      throw new HttpException(
+        'Too many failed password reset attempts; the reset link has been voided. Request a new one.',
+        429,
+      );
+    }
   }
 
   private defaultName(email: string) {
@@ -555,12 +640,32 @@ export class AuthService {
     return cleaned.length >= 2 ? cleaned : `${cleaned || 'user'}_user`;
   }
 
-  private async buildResetUrl(request: Request, token: string) {
+  private async buildResetUrl(token: string) {
+    // Never fall back to the request Origin/Host headers: they are
+    // attacker-controlled, and a reset link built from them hands the token
+    // to an attacker domain. Only the configured public URL is trusted.
+    // If it is not configured, refuse — the caller logs this and returns a
+    // generic response, so the caller cannot tell whether mail was sent.
     const configured = await this.settings.getAppPublicUrl();
-    const baseUrl =
-      configured ||
-      request.headers.origin ||
-      `${request.protocol}://${request.get('host')}`;
+    if (!configured) {
+      throw new Error(
+        'APP_PUBLIC_URL is not configured; password reset email not sent',
+      );
+    }
+
+    let baseUrl: URL;
+    try {
+      baseUrl = new URL(configured);
+    } catch {
+      throw new Error(
+        `APP_PUBLIC_URL is not a valid URL (${configured}); password reset email not sent`,
+      );
+    }
+    if (baseUrl.protocol !== 'http:' && baseUrl.protocol !== 'https:') {
+      throw new Error(
+        'APP_PUBLIC_URL must use http:// or https://; password reset email not sent',
+      );
+    }
 
     const url = new URL('/reset-password', baseUrl);
     url.searchParams.set('token', token);

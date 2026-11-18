@@ -34,6 +34,7 @@ import {
   StorageRuntimeConfig,
   StorageService,
 } from '../storage/storage.service';
+import { serializeImage } from '../images/serialize-image';
 import { CreateUploadDto } from './dto/create-upload.dto';
 import { ImportUrlDto } from './dto/import-url.dto';
 
@@ -115,6 +116,11 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
+    // NOTE: uploadUrl is always the backend PUT endpoint
+    // (/api/upload/<key>/object), for LOCAL and S3 alike — no pre-signed
+    // direct-to-S3 URL is generated in this pass. expiresIn is advisory
+    // only and is not enforced on the URL; uncompleted PENDING rows are
+    // removed by the 24h stale-upload cleanup instead.
     return {
       imageId: image.id,
       key,
@@ -123,7 +129,8 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
       headers: {
         'Content-Type': dto.contentType,
       },
-      publicUrl: image.publicUrl,
+      publicUrl: serializeImage(image, storageSetting, this.storage)
+        .publicUrl,
       expiresIn: 900,
       storageProvider: image.storageProvider,
     };
@@ -222,18 +229,23 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
       throw new ForbiddenException('Image is not accessible');
     }
 
+    const setting = await this.settings.getRuntime(ownerId);
+
     if (image.uploadedAt) {
-      return {
-        ...image,
-        sizeBytes: Number(image.sizeBytes),
-      };
+      return serializeImage(
+        image,
+        this.toStorageSetting({
+          ...setting,
+          storageProvider: image.storageProvider,
+        }),
+        this.storage,
+      );
     }
 
     if (image.status !== ImageStatus.PENDING) {
       throw new BadRequestException('Upload has already been completed');
     }
 
-    const setting = await this.settings.getRuntime(ownerId);
     await this.verifyStoredObject(image, this.toStorageSetting(setting));
     const stored = await this.storage.getObjectBuffer(
       image.storageKey,
@@ -318,10 +330,14 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      return {
-        ...updated,
-        sizeBytes: Number(updated.sizeBytes),
-      };
+      return serializeImage(
+        updated,
+        this.toStorageSetting({
+          ...setting,
+          storageProvider: updated.storageProvider,
+        }),
+        this.storage,
+      );
     } catch (error) {
       const current = await this.prisma.image.findUnique({
         where: { id: image.id },
@@ -453,10 +469,7 @@ export class UploadService implements OnModuleInit, OnModuleDestroy {
         });
       }
 
-      return {
-        ...image,
-        sizeBytes: Number(image.sizeBytes),
-      };
+      return serializeImage(image, storageSetting, this.storage);
     } catch (error) {
       await this.storage
         .deleteObject(key, storageSetting)

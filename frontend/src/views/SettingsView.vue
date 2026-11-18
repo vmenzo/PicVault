@@ -14,6 +14,7 @@ import {
 import { ElMessage } from 'element-plus/es/components/message/index';
 import { ElMessageBox } from 'element-plus/es/components/message-box/index';
 import { changePasswordApi } from '@/api/auth';
+import { apiUrl } from '@/utils/api-url';
 import {
   createApiKeyApi,
   deleteApiKeyApi,
@@ -54,7 +55,7 @@ const availableBytes = computed(() =>
 const apiExample = computed(
   () => `curl -H "X-API-Key: ${createdKey.value || 'YOUR_API_KEY'}" \\
   -H "Content-Type: application/json" \\
-  ${window.location.origin}/api/images`,
+  ${apiUrl('/images')}`,
 );
 
 async function load() {

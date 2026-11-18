@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus/es/components/message/index';
+import { ElMessageBox } from 'element-plus/es/components/message-box/index';
 import { listAlbumsApi } from '@/api/albums';
 import {
   getAppSettingApi,
@@ -10,6 +11,7 @@ import {
 } from '@/api/settings';
 import { getTelegramStatusApi } from '@/api/telegram';
 import { useAuthStore } from '@/stores/auth';
+import { apiUrl } from '@/utils/api-url';
 import type { Album, StorageProvider, Visibility } from '@/api/types';
 
 const auth = useAuthStore();
@@ -18,6 +20,12 @@ const activeSection = ref('storage');
 const saving = ref(false);
 const testingStorage = ref(false);
 const testingEmail = ref(false);
+/** True when the initial load failed: the form still holds default/blank
+ * values, so saving (or testing) must stay disabled until a load succeeds. */
+const loadFailed = ref(false);
+/** JSON of the last successfully loaded (or saved) settings payload,
+ * used for the dirty check before a test. */
+const savedSnapshot = ref('');
 const albums = ref<Album[]>([]);
 const telegramConfigured = ref(false);
 const currentOrigin = window.location.origin;
@@ -42,9 +50,8 @@ const storage = reactive({
   defaultVisibility: 'PRIVATE' as Visibility,
 });
 
-const localPublicBaseUrl = computed(
-  () =>
-    `${(site.appPublicUrl || currentOrigin).replace(/\/$/, '')}/api/public/files`,
+const localPublicBaseUrl = computed(() =>
+  apiUrl('/public/files', site.appPublicUrl || currentOrigin),
 );
 
 const processing = reactive({
@@ -129,6 +136,7 @@ function cleanS3Credential(value: string) {
 
 async function load() {
   loading.value = true;
+  loadFailed.value = false;
   try {
     const [data, albumList, botStatus] = await Promise.all([
       getAppSettingApi(),
@@ -179,58 +187,82 @@ async function load() {
     telegramConfigured.value = Boolean(
       botStatus?.accounts.some((account) => account.configured),
     );
+    storage.s3AccessKey = cleanS3Credential(storage.s3AccessKey);
+    storage.s3SecretKey = cleanS3Credential(storage.s3SecretKey);
+    savedSnapshot.value = JSON.stringify(buildPayload());
+  } catch {
+    // Previously load() had no catch: a failed load left the default /
+    // blank form values in place, and a later save would have written
+    // those blanks to production. Block saving until a load succeeds.
+    loadFailed.value = true;
+    ElMessage.error('配置加载失败，保存与测试已禁用，请检查网络后重新加载');
   } finally {
     loading.value = false;
   }
 }
 
+/** The exact payload save() sends, shared by the dirty check. */
+function buildPayload() {
+  return {
+    publicBaseUrl: storage.s3PublicBaseUrl || null,
+    appPublicUrl: site.appPublicUrl || null,
+    storageProvider: storage.provider,
+    localStoragePath: storage.localStoragePath || null,
+    s3Endpoint: storage.s3Endpoint || null,
+    s3Region: storage.s3Region || null,
+    s3Bucket: storage.s3Bucket || null,
+    s3AccessKey: storage.s3AccessKey || null,
+    s3SecretKey: storage.s3SecretKey || null,
+    s3ForcePathStyle: storage.s3ForcePathStyle,
+    maxSizeMb: storage.maxSizeMb,
+    defaultQuotaMb: storage.defaultQuotaMb,
+    allowedTypes: storage.allowedTypes,
+    defaultVisibility: storage.defaultVisibility,
+    generateThumbnail: processing.thumbnail,
+    generateWebp: processing.webp,
+    generateAvif: processing.avif,
+    stripMetadata: processing.stripMetadata,
+    watermark: processing.watermark,
+    watermarkText: processing.watermarkText,
+    hotlinkProtection: security.hotlinkProtection,
+    uploadAudit: security.uploadAudit,
+    apiUpload: security.apiUpload,
+    registrationEnabled: security.registrationEnabled,
+    trashRetentionDays: security.trashRetentionDays,
+    telegramBotEnabled: telegram.enabled,
+    telegramBotToken: telegram.token || null,
+    telegramAllowedChatIds: telegram.allowedChatIdsText
+      .split(/[\n,]/)
+      .map((item) => item.trim())
+      .filter(Boolean),
+    telegramAlbumId: telegram.albumId || null,
+    smtpEnabled: email.enabled,
+    smtpHost: email.host || null,
+    smtpPort: email.port || null,
+    smtpSecure: email.secure,
+    smtpUsername: email.username || null,
+    smtpPassword: email.password || null,
+    smtpFrom: email.from || null,
+  };
+}
+
+const isDirty = computed(
+  () =>
+    savedSnapshot.value !== '' &&
+    JSON.stringify(buildPayload()) !== savedSnapshot.value,
+);
+
 async function save() {
+  if (loadFailed.value) {
+    ElMessage.warning('配置尚未加载成功，请先重新加载再保存');
+    return;
+  }
   saving.value = true;
   try {
     storage.s3AccessKey = cleanS3Credential(storage.s3AccessKey);
     storage.s3SecretKey = cleanS3Credential(storage.s3SecretKey);
 
-    await updateAppSettingApi({
-      publicBaseUrl: storage.s3PublicBaseUrl || null,
-      appPublicUrl: site.appPublicUrl || null,
-      storageProvider: storage.provider,
-      localStoragePath: storage.localStoragePath || null,
-      s3Endpoint: storage.s3Endpoint || null,
-      s3Region: storage.s3Region || null,
-      s3Bucket: storage.s3Bucket || null,
-      s3AccessKey: storage.s3AccessKey || null,
-      s3SecretKey: storage.s3SecretKey || null,
-      s3ForcePathStyle: storage.s3ForcePathStyle,
-      maxSizeMb: storage.maxSizeMb,
-      defaultQuotaMb: storage.defaultQuotaMb,
-      allowedTypes: storage.allowedTypes,
-      defaultVisibility: storage.defaultVisibility,
-      generateThumbnail: processing.thumbnail,
-      generateWebp: processing.webp,
-      generateAvif: processing.avif,
-      stripMetadata: processing.stripMetadata,
-      watermark: processing.watermark,
-      watermarkText: processing.watermarkText,
-      hotlinkProtection: security.hotlinkProtection,
-      uploadAudit: security.uploadAudit,
-      apiUpload: security.apiUpload,
-      registrationEnabled: security.registrationEnabled,
-      trashRetentionDays: security.trashRetentionDays,
-      telegramBotEnabled: telegram.enabled,
-      telegramBotToken: telegram.token || null,
-      telegramAllowedChatIds: telegram.allowedChatIdsText
-        .split(/[\n,]/)
-        .map((item) => item.trim())
-        .filter(Boolean),
-      telegramAlbumId: telegram.albumId || null,
-      smtpEnabled: email.enabled,
-      smtpHost: email.host || null,
-      smtpPort: email.port || null,
-      smtpSecure: email.secure,
-      smtpUsername: email.username || null,
-      smtpPassword: email.password || null,
-      smtpFrom: email.from || null,
-    });
+    await updateAppSettingApi(buildPayload());
     ElMessage.success('配置已保存');
     await load();
   } finally {
@@ -246,7 +278,38 @@ async function handleSaveClick() {
   }
 }
 
+/**
+ * Tests run against the SAVED configuration: the backend test endpoints
+ * (POST /settings/app/storage-test, /settings/app/email-test) read the
+ * persisted settings, and there is no dry-run endpoint that accepts
+ * unsaved form values, so the API shape was deliberately left unchanged.
+ * If the form is unchanged since load, test directly without saving.
+ * If it is dirty, ask for explicit confirmation first and label clearly
+ * that saving the whole form is what the test requires.
+ */
+async function confirmSaveBeforeTest() {
+  if (!isDirty.value) return true;
+  try {
+    await ElMessageBox.confirm(
+      '当前表单有未保存的修改，而测试使用的是已保存的配置。继续将先保存全部配置（存储、处理、安全、Telegram 与 SMTP），然后再测试。',
+      '测试前保存配置',
+      {
+        type: 'warning',
+        confirmButtonText: '保存并测试',
+        cancelButtonText: '取消',
+      },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function testEmail() {
+  if (loadFailed.value) {
+    ElMessage.warning('配置尚未加载成功，请先重新加载再测试');
+    return;
+  }
   if (!email.testTo) {
     ElMessage.warning('请填写测试收件邮箱');
     return;
@@ -254,7 +317,8 @@ async function testEmail() {
 
   testingEmail.value = true;
   try {
-    await save();
+    if (!(await confirmSaveBeforeTest())) return;
+    if (isDirty.value) await save();
     await testEmailApi({ email: email.testTo });
     ElMessage.success('测试邮件已发送');
   } catch {
@@ -265,9 +329,14 @@ async function testEmail() {
 }
 
 async function testStorage() {
+  if (loadFailed.value) {
+    ElMessage.warning('配置尚未加载成功，请先重新加载再测试');
+    return;
+  }
   testingStorage.value = true;
   try {
-    await save();
+    if (!(await confirmSaveBeforeTest())) return;
+    if (isDirty.value) await save();
     const result = await testStorageApi();
     ElMessage.success(
       result.provider === 'LOCAL'
@@ -286,6 +355,18 @@ onMounted(load);
 
 <template>
   <div class="page-stack" v-loading="loading">
+    <el-alert
+      v-if="loadFailed"
+      title="配置加载失败：表单显示的是默认值而非服务器配置，保存与测试已禁用，以免把空白值写入生产配置。"
+      type="error"
+      :closable="false"
+      show-icon
+      class="control-center-alert"
+    >
+      <template #default>
+        <el-button size="small" @click="load">重新加载配置</el-button>
+      </template>
+    </el-alert>
     <div class="page-actions">
       <el-segmented
         v-model="activeSection"
@@ -295,7 +376,11 @@ onMounted(load);
           { label: '安全与邮件', value: 'security' },
         ]"
       />
-      <el-button type="primary" :loading="saving" @click="handleSaveClick"
+      <el-button
+        type="primary"
+        :loading="saving"
+        :disabled="loadFailed"
+        @click="handleSaveClick"
         >保存全部配置</el-button
       >
     </div>
@@ -411,9 +496,20 @@ onMounted(load);
           </template>
 
           <div class="form-actions">
-            <el-button :loading="testingStorage" @click="testStorage">
+            <el-button
+              :loading="testingStorage"
+              :disabled="loadFailed"
+              @click="testStorage"
+            >
               测试当前存储
             </el-button>
+            <span class="form-help">
+              {{
+                isDirty
+                  ? '有未保存的修改：测试前会先保存全部配置（需确认）。'
+                  : '将使用已保存的配置测试，不会保存当前表单。'
+              }}
+            </span>
           </div>
         </el-form>
       </el-card>
@@ -617,9 +713,19 @@ onMounted(load);
             </el-form-item>
           </div>
           <div class="form-actions">
-            <el-button :loading="testingEmail" @click="testEmail"
+            <el-button
+              :loading="testingEmail"
+              :disabled="loadFailed"
+              @click="testEmail"
               >发送测试邮件</el-button
             >
+            <span class="form-help">
+              {{
+                isDirty
+                  ? '有未保存的修改：测试前会先保存全部配置（需确认）。'
+                  : '将使用已保存的配置测试，不会保存当前表单。'
+              }}
+            </span>
           </div>
         </el-form>
       </el-card>

@@ -27,6 +27,10 @@ export function listImagesApi(params: ListImagesParams) {
   >('/images', { params });
 }
 
+export function getImageApi(id: string) {
+  return http.get<unknown, ImageItem>(`/images/${id}`);
+}
+
 export function imageStatsApi() {
   return http.get<unknown, ImageStats>('/images/stats');
 }
@@ -108,5 +112,8 @@ export function imageAssetApi(
 }
 
 export function publicImageInfoApi(id: string) {
-  return http.get<unknown, ImageItem>(`/public/images/${id}`);
+  // Public page: render its own not-found state instead of a toast.
+  return http.get<unknown, ImageItem>(`/public/images/${id}`, {
+    silent: true,
+  });
 }

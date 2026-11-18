@@ -41,9 +41,10 @@ export type ImageItem = {
   width?: number;
   height?: number;
   publicUrl: string;
-  thumbUrl?: string;
-  webpUrl?: string;
-  avifUrl?: string;
+  // The backend returns null (not undefined) when a variant does not exist.
+  thumbUrl?: string | null;
+  webpUrl?: string | null;
+  avifUrl?: string | null;
   status: ImageStatus;
   visibility: Visibility;
   views: number;

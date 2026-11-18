@@ -50,6 +50,45 @@ export class SystemService {
     };
   }
 
+  /**
+   * Unauthenticated readiness probe for orchestrators / the frontend
+   * /healthz handler. Unlike health() above it needs no admin user: it
+   * only proves the process can reach Postgres and Redis right now.
+   * Returns status 'error' (never throws) when either dependency is down,
+   * so callers can map it to a non-2xx HTTP status.
+   */
+  async readiness() {
+    const [database, redis] = await Promise.all([
+      this.databasePing(),
+      this.redisPing(),
+    ]);
+    const ok = database.status === 'ok' && redis.status === 'ok';
+    return {
+      status: ok ? 'ok' : 'error',
+      uptimeSeconds: Math.round(process.uptime()),
+      services: { database, redis },
+    };
+  }
+
+  private async databasePing(): Promise<ServiceHealth> {
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+      return this.serviceOk();
+    } catch (error) {
+      return this.serviceError(error);
+    }
+  }
+
+  private async redisPing(): Promise<ServiceHealth> {
+    try {
+      // A job-counts call round-trips to Redis through the BullMQ client.
+      await this.imageQueue.getJobCounts('waiting');
+      return this.serviceOk();
+    } catch (error) {
+      return this.serviceError(error);
+    }
+  }
+
   async health(ownerId: string) {
     const startedAt = Date.now() - Math.round(process.uptime() * 1000);
     const [database, queueServices, runtime] = await Promise.all([

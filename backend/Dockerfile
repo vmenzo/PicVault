@@ -39,6 +39,16 @@ COPY --from=build /app/backend/dist backend/dist
 COPY --from=build /app/backend/prisma backend/prisma
 COPY --from=build /app/node_modules/.prisma node_modules/.prisma
 
+# Run as the unprivileged "node" user shipped in the base image (uid 1000)
+# instead of root. The backend only needs to write to its storage
+# directory (a named volume, initialised with this ownership) and to read
+# dist/prisma; ports 3000 and the Prisma deploy step need no privileges.
+# COPY preserves the host file modes, and a checkout with restrictive
+# modes (e.g. package.json at 660) would leave the app unreadable for
+# node, so the whole tree is re-owned to node before dropping privileges.
+RUN mkdir -p /app/backend/storage && chown -R node:node /app
+USER node
+
 ENV NODE_ENV=production
 WORKDIR /app
 

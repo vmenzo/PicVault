@@ -46,6 +46,11 @@ export class ImagesController {
     return this.images.tags(user.id);
   }
 
+  @Get(':id')
+  get(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.images.get(user.id, id);
+  }
+
   @Get(':id/asset')
   async asset(
     @CurrentUser() user: CurrentUserPayload,

@@ -1,12 +1,16 @@
 import { http } from './http';
 
 export type ServiceStatus = {
+  // Per-service values from the backend: 'ok' | 'warning' | 'error'.
+  // ('degraded' is only used for the overall SystemHealth.status below,
+  // never for an individual service.)
   status: 'ok' | 'warning' | 'error';
   message?: string;
 };
 
 export type SystemHealth = {
-  status: string;
+  // Backend overallStatus(): 'ok' | 'warning' | 'degraded'.
+  status: 'ok' | 'warning' | 'degraded';
   uptimeSeconds: number;
   startedAt: string;
   nodeVersion: string;

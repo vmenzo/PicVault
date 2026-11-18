@@ -1,0 +1,21 @@
+# PicVault reverse proxy — Caddy example.
+# Install: copy this block into /etc/caddy/Caddyfile, then `systemctl reload caddy`.
+# Caddy obtains and renews the TLS certificate automatically (no Certbot needed).
+# Assumes PicVault listens on 127.0.0.1:7899 (the default APP_BIND_ADDRESS).
+
+img.example.com {
+	# Uploads can be large; raise the limit if you allow bigger files.
+	# (Caddy has no small default body limit; this is a safety cap.)
+	request_body {
+		max_size 100MB
+	}
+
+	reverse_proxy 127.0.0.1:7899
+
+	# Security headers Caddy does not add by itself. PicVault already sends
+	# most of these; these two are cheap defence-in-depth at the edge.
+	header {
+		Strict-Transport-Security "max-age=15552000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+	}
+}

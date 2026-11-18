@@ -8,6 +8,7 @@ import type { ImageItem } from '@/api/types';
 import { copyToClipboard } from '@/utils/clipboard';
 import { formatBytes, formatDate, visibilityLabel } from '@/utils/format';
 import { toAbsoluteUrl } from '@/utils/url';
+import { apiUrl } from '@/utils/api-url';
 
 const route = useRoute();
 const loading = ref(true);
@@ -15,7 +16,7 @@ const image = ref<ImageItem | null>(null);
 
 const downloadUrl = computed(() =>
   image.value
-    ? `${window.location.origin}/api/public/images/${image.value.id}/download`
+    ? apiUrl(`/public/images/${image.value.id}/download`)
     : '',
 );
 

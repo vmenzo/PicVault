@@ -18,30 +18,51 @@ export class AlbumsService {
       },
     });
 
-    return albums.map((album) => ({
-      ...album,
-      imageCount: album._count.images,
-      _count: undefined,
-    }));
+    return albums.map((album) => this.serializeAlbum(album));
   }
 
-  create(ownerId: string, dto: CreateAlbumDto) {
-    return this.prisma.album.create({
+  private serializeAlbum(album: {
+    _count: { images: number };
+    [key: string]: unknown;
+  }) {
+    const { _count, ...rest } = album;
+    return {
+      ...rest,
+      imageCount: _count.images,
+    };
+  }
+
+  async create(ownerId: string, dto: CreateAlbumDto) {
+    const album = await this.prisma.album.create({
       data: {
         ownerId,
         name: dto.name,
         description: dto.description,
         visibility: dto.visibility,
       },
+      include: {
+        _count: {
+          select: { images: true },
+        },
+      },
     });
+
+    return this.serializeAlbum(album);
   }
 
   async update(ownerId: string, id: string, dto: UpdateAlbumDto) {
     await this.ensureOwner(ownerId, id);
-    return this.prisma.album.update({
+    const album = await this.prisma.album.update({
       where: { id },
       data: dto,
+      include: {
+        _count: {
+          select: { images: true },
+        },
+      },
     });
+
+    return this.serializeAlbum(album);
   }
 
   async remove(ownerId: string, id: string) {

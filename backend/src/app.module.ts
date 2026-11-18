@@ -17,11 +17,15 @@ import { SystemModule } from './modules/system/system.module';
 import { TelegramModule } from './modules/telegram/telegram.module';
 import { UploadModule } from './modules/upload/upload.module';
 import { UsersModule } from './modules/users/users.module';
+import { validateEnv } from './config/env-validation';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      // Fail fast on placeholder passwords, a missing APP_PUBLIC_URL in
+      // production, or malformed URLs/ports. See env-validation.ts.
+      validate: validateEnv,
     }),
     BullModule.forRootAsync({
       inject: [ConfigService],

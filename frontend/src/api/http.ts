@@ -2,10 +2,51 @@ import axios from 'axios';
 import { ElMessage } from 'element-plus/es/components/message/index';
 import { useAuthStore } from '@/stores/auth';
 
+// VITE_API_BASE_URL is inlined into the bundle at build time, so changing
+// it requires a rebuild: docker-compose.yml passes it as a build arg to
+// frontend/Dockerfile, and the runtime `environment:` value of the same
+// name is ignored by the already-built bundle. An empty string is treated
+// as unset so the dev default '/api' (proxied by vite.config.ts) applies.
+const rawBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+export const apiBaseUrl = rawBaseUrl ? rawBaseUrl : '/api';
+
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    /**
+     * Skip the global error toast for this request (background refreshes
+     * and public pages that render their own empty/error state). The
+     * 401 logout still runs; only the toast is suppressed.
+     */
+    silent?: boolean;
+  }
+}
+
 export const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api',
+  baseURL: apiBaseUrl,
   timeout: 20000,
 });
+
+/**
+ * True when `url` points at this app's backend: a relative /api/ path
+ * (the form the backend always returns for upload URLs), a URL under the
+ * configured apiBaseUrl, or any same-origin absolute URL. Direct-to-S3
+ * uploads are not used — S3 uploads go through the backend PUT endpoint —
+ * so a non-backend URL here is unexpected and must not receive the
+ * session token.
+ */
+export function isBackendUrl(url: string) {
+  if (url.startsWith('/api/')) return true;
+  const base = apiBaseUrl.replace(/\/$/, '');
+  if (base && url.startsWith(base)) return true;
+  if (/^https?:\/\//.test(url)) {
+    try {
+      return new URL(url).origin === window.location.origin;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
 
 http.interceptors.request.use((config) => {
   const auth = useAuthStore();
@@ -17,15 +58,14 @@ http.interceptors.request.use((config) => {
 
 http.interceptors.response.use(
   (response) => response.data,
-  (error) => {
-    const rawMessage =
-      error.response?.data?.message ?? error.message ?? '请求失败，请稍后重试';
-    const message = Array.isArray(rawMessage) ? rawMessage[0] : rawMessage;
+  async (error) => {
+    const message = await readErrorMessage(error);
 
     const auth = useAuthStore();
     const requestUrl = String(error.config?.url ?? '');
     const isPublicAuthRequest = [
       '/auth/login',
+      '/auth/logout',
       '/auth/register',
       '/auth/password-reset/request',
       '/auth/password-reset/confirm',
@@ -35,10 +75,35 @@ http.interceptors.response.use(
       auth.logout();
     }
 
-    ElMessage.error(normalizeApiError(message));
+    if (!error.config?.silent) {
+      ElMessage.error(normalizeApiError(message));
+    }
     return Promise.reject(error);
   },
 );
+
+/**
+ * Extract the display message from an axios error. Blob bodies (a failed
+ * export's JSON error arrives as a Blob because of responseType: 'blob')
+ * are read and parsed as JSON first; the backend error envelope is
+ * {code, message}, and validation failures arrive as a string[] message.
+ */
+export async function readErrorMessage(error: unknown): Promise<string> {
+  const response = (error as { response?: { data?: unknown } })?.response;
+  let data = response?.data;
+  if (data instanceof Blob) {
+    try {
+      data = JSON.parse(await data.text());
+    } catch {
+      data = undefined;
+    }
+  }
+  const rawMessage =
+    (data as { message?: unknown } | undefined)?.message ??
+    (error as { message?: unknown })?.message ??
+    '请求失败，请稍后重试';
+  return Array.isArray(rawMessage) ? rawMessage[0] : String(rawMessage);
+}
 
 export function normalizeApiError(message: string) {
   const translations: Array<[string, string]> = [
@@ -73,7 +138,7 @@ export function normalizeApiError(message: string) {
   }
 
   if (message.includes('Network Error')) {
-    return '网络请求失败，请检查服务是否可访问，或第三方对象存储 CORS 是否允许当前域名';
+    return '网络请求失败，请检查服务是否可访问';
   }
 
   if (message.includes('Invalid character in header content')) {

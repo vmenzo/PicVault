@@ -25,6 +25,12 @@ let codeTimer: number | undefined;
 const mode = ref<AuthMode>('login');
 const allowRegister = ref(false);
 const firstUser = ref(false);
+/** 'loading' until the first status fetch resolves; 'error' means the
+ * backend could not be reached at all — distinct from registration
+ * being deliberately closed ('loaded' with allowRegister=false). */
+const registrationStatusState = ref<'loading' | 'loaded' | 'error'>(
+  'loading',
+);
 const emailVerificationRequired = ref(true);
 const form = reactive({
   email: '',
@@ -41,12 +47,20 @@ const title = computed(() => {
   return '登录 PicVault';
 });
 const subtitle = computed(() => {
-  if (mode.value === 'register') return '创建团队的图片资产空间';
+  if (mode.value === 'register') {
+    if (registrationStatusState.value === 'error')
+      return '注册状态加载失败，暂无法确认是否开放注册';
+    return allowRegister.value
+      ? '创建团队的图片资产空间'
+      : '注册已关闭，请联系管理员开通';
+  }
   if (mode.value === 'forgot') return '输入账户邮箱，系统会发送密码重置邮件';
   if (mode.value === 'reset') return '设置一个新的安全密码';
+  if (registrationStatusState.value === 'error')
+    return '无法连接服务器：请检查网络或稍后重试，登录仍可尝试';
   return allowRegister.value
     ? '进入你的图片资产工作台'
-    : '使用管理员账户进入工作台';
+    : '注册已关闭，使用管理员账户进入工作台';
 });
 const submitLabel = computed(() => {
   if (mode.value === 'register') return '注册并登录';
@@ -115,14 +129,24 @@ onUnmounted(() => {
 });
 
 async function loadRegistrationStatus() {
+  registrationStatusState.value = 'loading';
   try {
     const status = await registrationStatusApi();
     firstUser.value = status.firstUser;
-    allowRegister.value = status.registrationEnabled;
+    // The first account is the bootstrap admin: registration stays open
+    // until it exists, even when registration is otherwise closed.
+    // Otherwise a fresh install shows "注册已关闭" with no way to create
+    // the admin, and the product is unusable out of the box.
+    allowRegister.value = status.registrationEnabled || status.firstUser;
     emailVerificationRequired.value = status.emailVerificationRequired;
+    registrationStatusState.value = 'loaded';
   } catch {
+    // Do NOT conflate this with "registration closed": the server may
+    // simply be unreachable. Keep allowRegister false (registration
+    // stays unavailable) but surface the real reason in the UI.
     firstUser.value = false;
     allowRegister.value = false;
+    registrationStatusState.value = 'error';
   }
 }
 
@@ -258,6 +282,32 @@ function switchRegister() {
         <div v-if="showFirstAdminHint" class="first-admin-hint">
           首次安装时，第一个注册成功的账户会自动成为管理员。
         </div>
+
+        <el-alert
+          v-if="registrationStatusState === 'error'"
+          title="无法加载注册状态：服务器可能未启动或网络异常。登录仍可尝试；注册入口暂时不可用，恢复连接后会自动恢复。"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="login-status-alert"
+        >
+          <template #default>
+            <el-button size="small" @click="loadRegistrationStatus">
+              重新加载注册状态
+            </el-button>
+          </template>
+        </el-alert>
+
+        <p
+          v-else-if="
+            registrationStatusState === 'loaded' &&
+            !allowRegister &&
+            mode === 'login'
+          "
+          class="login-status-note"
+        >
+          新用户注册已由管理员关闭；如需开通账户请联系管理员。
+        </p>
 
         <el-form
           ref="formRef"

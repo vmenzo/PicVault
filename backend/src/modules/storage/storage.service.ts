@@ -72,6 +72,14 @@ export class StorageService implements OnModuleInit {
     return `${base.replace(/\/$/, '')}/${key}`;
   }
 
+  /**
+   * Returns the backend PUT endpoint for the object — for LOCAL and S3
+   * alike. No pre-signed direct-to-S3 URL is generated: S3 uploads still
+   * go through the backend (`PUT /api/upload/<key>/object`), which streams
+   * the object to S3 server-side, so no S3 CORS configuration is needed
+   * for uploads. The returned URL carries no expiry; uncompleted PENDING
+   * rows are removed by the upload service's 24h stale-upload cleanup.
+   */
   async createUploadUrl(input: {
     key: string;
     contentType: string;
